@@ -6,3 +6,10 @@ compatibility_date = "2026-07-25"
 binding = "DB"
 database_name = "suivi-muscu"
 database_id = "f666d98c-2792-46fa-a6da-34285cb09683"
+
+# Pas un vrai secret : ce token finit de toute façon visible dans le JS
+# envoyé au navigateur (l'app est 100% front, pas de serveur pour le cacher).
+# En var simple ici pour être déployé automatiquement à chaque push, sans
+# dépendre de la config manuelle "Secrets Store" du dashboard Cloudflare.
+[vars]
+API_TOKEN = "41D9ATnjkOSYPxdB1h3sGuEX3w"
