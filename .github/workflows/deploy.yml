@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VITE_API_URL: https://mytrainning.thierry-rouly31.workers.dev
-      VITE_API_TOKEN: 23b6f11384d74b884530412189c1128faded0cf319932772
+      VITE_API_TOKEN: 41D9ATnjkOSYPxdB1h3sGuEX3w
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
