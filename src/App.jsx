@@ -18,12 +18,17 @@ const C = {
 };
 
 // Two axes: TYPE (charges vs poids du corps) × GROUPE MUSCULAIRE.
-const TYPES = [
+// Ces constantes ne servent plus qu'à AMORCER le catalogue au tout premier
+// lancement (voir buildDefaultCatalog ci-dessous) — l'utilisateur peut
+// ensuite créer/renommer/supprimer types, groupes et exercices depuis
+// l'onglet Catalogue. Le catalogue effectif vit dans le state `catalog`
+// (persisté sous la clé `catalog:data`), plus jamais dans ces constantes.
+const DEFAULT_TYPES = [
   { key: "charges", label: "Avec charges" },
   { key: "poids", label: "Poids du corps" },
 ];
 
-const GROUPS = [
+const DEFAULT_GROUPS = [
   "Pectoraux",
   "Dos (largeur)",
   "Dos (épaisseur)",
@@ -42,8 +47,8 @@ const GROUPS = [
   "Corps entier",
 ];
 
-// EXOS[type][groupe] = liste d'exercices
-const EXOS = {
+// DEFAULT_EXOS[type][groupe] = liste d'exercices (amorçage uniquement)
+const DEFAULT_EXOS = {
   charges: {
     "Pectoraux": ["Développé couché", "Développé incliné", "Développé haltères", "Écartés", "Dips lestés"],
     "Dos (largeur)": ["Tractions lestées", "Tirage vertical", "Pull-over", "Rowing unilatéral"],
@@ -82,14 +87,39 @@ const EXOS = {
   },
 };
 
-// Flat list for search, with type/group context.
-const ALL_EXOS = [];
-TYPES.forEach((t) =>
-  GROUPS.forEach((g) => (EXOS[t.key][g] || []).forEach((e) =>
-    ALL_EXOS.push({ name: e, type: t.key, group: g })
-  ))
-);
-const itemsFor = (type, group) => (EXOS[type] && EXOS[type][group]) || [];
+const defaultItemsFor = (type, group) => (DEFAULT_EXOS[type] && DEFAULT_EXOS[type][group]) || [];
+
+// Construit le catalogue de départ (une fois, au premier lancement) à partir
+// des constantes DEFAULT_* ci-dessus. `exos` est une liste plate — plus de
+// structure imbriquée par type/groupe — pour rester facile à éditer.
+function buildDefaultCatalog() {
+  const types = DEFAULT_TYPES.map((t) => ({ ...t, hasWeight: t.key === "charges" }));
+  const groups = [...DEFAULT_GROUPS];
+  const exos = [];
+  let n = 0;
+  DEFAULT_TYPES.forEach((t) => {
+    DEFAULT_GROUPS.forEach((g) => {
+      defaultItemsFor(t.key, g).forEach((name) => {
+        exos.push({ id: "d" + n++, name, type: t.key, group: g });
+      });
+    });
+  });
+  return { types, groups, exos };
+}
+
+// Le type "poids" est le point de départ historique de l'app (onglet
+// Aujourd'hui s'ouvre dessus) ; s'il a été supprimé/renommé, on retombe sur
+// le premier type disponible.
+const defaultTypeKey = (catalog) =>
+  ((catalog.types.find((t) => t.key === "poids") || catalog.types[0] || {}).key) || null;
+
+// ── Helpers opérant sur un catalogue dynamique (state `catalog`) ──
+const catItemsFor = (catalog, type, group) =>
+  catalog.exos.filter((e) => e.type === type && e.group === group).map((e) => e.name);
+const catAllExos = (catalog) =>
+  catalog.exos.map((e) => ({ name: e.name, type: e.type, group: e.group }));
+const catTypeLabel = (catalog, key) => ((catalog.types.find((t) => t.key === key) || {}).label) || key;
+const catTypeHasWeight = (catalog, key) => !!(catalog.types.find((t) => t.key === key) || {}).hasWeight;
 
 const todayKey = () => {
   const d = new Date();
@@ -156,17 +186,18 @@ export default function App() {
   const [history, setHistory] = useState({}); // { dateKey: session }
   const [workouts, setWorkouts] = useState({}); // { id: {name, blocks} }
   const [goals, setGoals] = useState({}); // { id: {id, exercise, metric, target, unit, deadline, createdAt} }
+  const [catalog, setCatalog] = useState(buildDefaultCatalog); // { types, groups, exos } — persisté sous catalog:data
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("today"); // today | catchup | workout
   const [type, setType] = useState("poids");
-  const [group, setGroup] = useState(GROUPS[0]);
-  const [exercise, setExercise] = useState(itemsFor("poids", GROUPS[0])[0]);
+  const [group, setGroup] = useState(DEFAULT_GROUPS[0]);
+  const [exercise, setExercise] = useState(defaultItemsFor("poids", DEFAULT_GROUPS[0])[0]);
   const [search, setSearch] = useState("");
   const [restLen, setRestLen] = useState(60);
   const [reps, setReps] = useState(15);
   const [mode, setMode] = useState("reps"); // "reps" | "time"
   const [secs, setSecs] = useState(30);      // duration per set when mode === "time"
-  const [weight, setWeight] = useState(20); // charge (kg), utilisée quand type === "charges"
+  const [weight, setWeight] = useState(20); // charge (kg), utilisée quand le type a hasWeight
 
   // Guided session runtime: the workout being executed, if any.
   const [run, setRun] = useState(null); // { name, steps:[...], idx }
@@ -262,6 +293,18 @@ export default function App() {
         }
       } catch {}
       try {
+        const cr = await window.storage.get("catalog:data");
+        if (cr) {
+          setCatalog(JSON.parse(cr.value));
+        } else {
+          // Premier lancement : on fige le catalogue par défaut en stockage
+          // pour que les éditions suivantes partent d'une base stable.
+          const def = buildDefaultCatalog();
+          setCatalog(def);
+          window.storage.set("catalog:data", JSON.stringify(def)).catch(() => {});
+        }
+      } catch {}
+      try {
         const rr = await window.storage.get("run:active");
         if (rr) {
           const parsed = JSON.parse(rr.value);
@@ -296,6 +339,11 @@ export default function App() {
   const deleteGoal = async (id) => {
     setGoals((gs) => { const n = { ...gs }; delete n[id]; return n; });
     try { await window.storage.delete("goal:" + id); } catch {}
+  };
+
+  const saveCatalog = (next) => {
+    setCatalog(next);
+    try { window.storage.set("catalog:data", JSON.stringify(next)); } catch {}
   };
 
   const saveDay = async (key, session) => {
@@ -362,7 +410,7 @@ export default function App() {
     const val = mode === "time" ? secs : reps;
     const set = {
       exercise, reps: val, mode, rest: restLen, at: new Date().toISOString(), type,
-      ...(type === "charges" && weight > 0 ? { weight } : {}),
+      ...(catTypeHasWeight(catalog, type) && weight > 0 ? { weight } : {}),
     };
     saveDay(key, { sets: [...existing.sets, set] });
     return set;
@@ -512,10 +560,10 @@ export default function App() {
     </div>
   );
 
-  const groupItems = itemsFor(type, group);
+  const groupItems = catItemsFor(catalog, type, group);
   const q = search.trim().toLowerCase();
-  const searchHits = q ? ALL_EXOS.filter((x) => x.name.toLowerCase().includes(q)) : null;
-  const typeLabel = (t) => (TYPES.find((x) => x.key === t) || {}).label;
+  const searchHits = q ? catAllExos(catalog).filter((x) => x.name.toLowerCase().includes(q)) : null;
+  const typeLabel = (t) => catTypeLabel(catalog, t);
 
   const exerciseChips = (
     <>
@@ -557,12 +605,12 @@ export default function App() {
           <div style={S.pickSection}>
             <div style={S.stepHead}><span style={S.stepDot}>1</span> Type d'exercice</div>
             <div style={{ display: "flex", gap: 8 }}>
-              {TYPES.map((t) => (
+              {catalog.types.map((t) => (
                 <button
                   key={t.key}
                   onClick={() => {
                     setType(t.key);
-                    const items = itemsFor(t.key, group);
+                    const items = catItemsFor(catalog, t.key, group);
                     if (items.length && !items.includes(exercise)) setExercise(items[0]);
                   }}
                   style={{ ...S.typeChip, ...(type === t.key ? S.typeChipOn : {}) }}
@@ -577,15 +625,15 @@ export default function App() {
           <div style={S.pickSection}>
             <div style={S.stepHead}><span style={S.stepDot}>2</span> Groupe musculaire</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {GROUPS.map((g) => {
-                const empty = itemsFor(type, g).length === 0;
+              {catalog.groups.map((g) => {
+                const empty = catItemsFor(catalog, type, g).length === 0;
                 return (
                   <button
                     key={g}
                     disabled={empty}
                     onClick={() => {
                       setGroup(g);
-                      const items = itemsFor(type, g);
+                      const items = catItemsFor(catalog, type, g);
                       if (items.length && !items.includes(exercise)) setExercise(items[0]);
                     }}
                     style={{ ...S.catChip, ...(group === g ? S.catChipOn : {}), ...(empty ? S.catChipOff : {}) }}
@@ -613,8 +661,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Charge — uniquement pour les exercices "avec charges" */}
-          {type === "charges" && (
+          {/* Charge — uniquement pour les types qui l'impliquent */}
+          {catTypeHasWeight(catalog, type) && (
             <div style={S.pickSection}>
               <div style={S.stepHead}><span style={S.stepDot}>+</span> Charge</div>
               {stepper(weight, setWeight, 0, 300, 2.5, "kg")}
@@ -647,6 +695,9 @@ export default function App() {
           </button>
           <button onClick={() => setTab("progress")} style={{ ...S.tab, ...(tab === "progress" ? S.tabOn : {}) }}>
             Progrès
+          </button>
+          <button onClick={() => setTab("catalog")} style={{ ...S.tab, ...(tab === "catalog" ? S.tabOn : {}) }}>
+            Catalogue
           </button>
         </div>
         )}
@@ -729,7 +780,7 @@ export default function App() {
                     onClick={() => {
                       // Run the effort countdown; when it ends, log the set then start rest.
                       startEffort(secs, () => {
-                        logSet(tk, exercise, secs, restLen, "time", type, type === "charges" ? weight : undefined);
+                        logSet(tk, exercise, secs, restLen, "time", type, catTypeHasWeight(catalog, type) ? weight : undefined);
                       });
                     }}
                     style={{ ...S.validate, background: C.effort }}
@@ -785,6 +836,7 @@ export default function App() {
             exerciseChips={exerciseChips}
             exercise={exercise}
             type={type}
+            catalog={catalog}
             weight={weight}
             reps={reps}
             setReps={setReps}
@@ -806,11 +858,16 @@ export default function App() {
             deleteWorkout={deleteWorkout}
             launchWorkout={launchWorkout}
             stepper={stepper}
+            catalog={catalog}
           />
         )}
 
         {!run && tab === "progress" && (
-          <ProgressTab history={history} goals={goals} saveGoal={saveGoal} deleteGoal={deleteGoal} stepper={stepper} />
+          <ProgressTab history={history} goals={goals} saveGoal={saveGoal} deleteGoal={deleteGoal} stepper={stepper} catalog={catalog} />
+        )}
+
+        {!run && tab === "catalog" && (
+          <CatalogTab catalog={catalog} saveCatalog={saveCatalog} />
         )}
 
         {run && (
@@ -954,7 +1011,7 @@ export default function App() {
 }
 
 // ── Catch-up tab: log a session on any past date ─────────────
-function CatchUp({ exerciseChips, exercise, type, weight, reps, setReps, secs, setSecs, mode, setMode, stepper, history, saveDay, todayKey }) {
+function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps, secs, setSecs, mode, setMode, stepper, history, saveDay, todayKey }) {
   const [date, setDate] = useState(todayKey);
   const [series, setSeries] = useState(3);
   const [msg, setMsg] = useState("");
@@ -966,7 +1023,7 @@ function CatchUp({ exerciseChips, exercise, type, weight, reps, setReps, secs, s
     const now = new Date().toISOString();
     const newSets = Array.from({ length: series }, () => ({
       exercise, reps: val, mode, rest: 0, at: now, type,
-      ...(type === "charges" && weight > 0 ? { weight } : {}),
+      ...(catTypeHasWeight(catalog, type) && weight > 0 ? { weight } : {}),
     }));
     saveDay(date, { sets: [...existing.sets, ...newSets] });
     setMsg(`${series} série(s) de ${fmtVal(val, mode)} ajoutée(s).`);
@@ -1036,15 +1093,15 @@ function CatchUp({ exerciseChips, exercise, type, weight, reps, setReps, secs, s
 }
 
 // ── Workout tab: build reusable sessions, then launch them ───
-function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepper }) {
+function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepper, catalog }) {
   const [name, setName] = useState("");
   const [blocks, setBlocks] = useState([]);
   const [editId, setEditId] = useState(null);
 
   // Exercise picker (adds to the current block draft).
-  const [bType, setBType] = useState("poids");
-  const [bGroup, setBGroup] = useState(GROUPS[0]);
-  const [bEx, setBEx] = useState(itemsFor("poids", GROUPS[0])[0]);
+  const [bType, setBType] = useState(defaultTypeKey(catalog));
+  const [bGroup, setBGroup] = useState(catalog.groups[0] || "");
+  const [bEx, setBEx] = useState(catItemsFor(catalog, defaultTypeKey(catalog), catalog.groups[0])[0] || "");
   const [bMode, setBMode] = useState("reps");
   const [bReps, setBReps] = useState(10);
   const [bSecs, setBSecs] = useState(30);
@@ -1056,14 +1113,14 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
   const [restBetween, setRestBetween] = useState(0);  // repos entre exos d'un tour
   const [restAfter, setRestAfter] = useState(90);     // repos après un tour
 
-  const bItems = itemsFor(bType, bGroup);
+  const bItems = catItemsFor(catalog, bType, bGroup);
 
   const addExoToDraft = () => {
     setDraft((d) => [
       ...d,
       {
         exercise: bEx, reps: bMode === "time" ? bSecs : bReps, mode: bMode, type: bType,
-        ...(bType === "charges" && bWeight > 0 ? { weight: bWeight } : {}),
+        ...(catTypeHasWeight(catalog, bType) && bWeight > 0 ? { weight: bWeight } : {}),
       },
     ]);
   };
@@ -1214,10 +1271,10 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
 
           {/* exercise picker */}
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            {TYPES.map((t) => (
+            {catalog.types.map((t) => (
               <button
                 key={t.key}
-                onClick={() => { setBType(t.key); const it = itemsFor(t.key, bGroup); if (it.length && !it.includes(bEx)) setBEx(it[0]); }}
+                onClick={() => { setBType(t.key); const it = catItemsFor(catalog, t.key, bGroup); if (it.length && !it.includes(bEx)) setBEx(it[0]); }}
                 style={{ ...S.typeChip, ...(bType === t.key ? S.typeChipOn : {}) }}
               >
                 {t.label}
@@ -1225,13 +1282,13 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
             ))}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-            {GROUPS.map((g) => {
-              const empty = itemsFor(bType, g).length === 0;
+            {catalog.groups.map((g) => {
+              const empty = catItemsFor(catalog, bType, g).length === 0;
               return (
                 <button
                   key={g}
                   disabled={empty}
-                  onClick={() => { setBGroup(g); const it = itemsFor(bType, g); if (it.length && !it.includes(bEx)) setBEx(it[0]); }}
+                  onClick={() => { setBGroup(g); const it = catItemsFor(catalog, bType, g); if (it.length && !it.includes(bEx)) setBEx(it[0]); }}
                   style={{ ...S.catChip, ...(bGroup === g ? S.catChipOn : {}), ...(empty ? S.catChipOff : {}) }}
                 >
                   {g}
@@ -1259,7 +1316,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
             <div style={{ marginBottom: 12 }}>{stepper(bSecs, setBSecs, 5, 600, 5, "s")}</div>
           )}
 
-          {bType === "charges" && (
+          {catTypeHasWeight(catalog, bType) && (
             <div style={{ marginBottom: 12 }}>{stepper(bWeight, setBWeight, 0, 300, 2.5, "kg")}</div>
           )}
 
@@ -1357,17 +1414,17 @@ const METRIC_INFO = {
   weight: { label: "Charge max", unit: "kg", step: 2.5 },
 };
 
-function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper }) {
+function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog }) {
   const [period, setPeriod] = useState("week");
-  const [type, setType] = useState("poids");
-  const [group, setGroup] = useState(GROUPS[0]);
+  const [type, setType] = useState(defaultTypeKey(catalog));
+  const [group, setGroup] = useState(catalog.groups[0] || "");
   const [exercise, setExercise] = useState(null); // null = vue globale (tous exercices)
   const [search, setSearch] = useState("");
 
-  const groupItems = itemsFor(type, group);
+  const groupItems = catItemsFor(catalog, type, group);
   const q = search.trim().toLowerCase();
-  const searchHits = q ? ALL_EXOS.filter((x) => x.name.toLowerCase().includes(q)) : null;
-  const typeLabel = (t) => (TYPES.find((x) => x.key === t) || {}).label;
+  const searchHits = q ? catAllExos(catalog).filter((x) => x.name.toLowerCase().includes(q)) : null;
+  const typeLabel = (t) => catTypeLabel(catalog, t);
 
   // Toutes les séries, aplaties avec leur date.
   const allSets = [];
@@ -1491,10 +1548,10 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper }) {
         ) : (
           <div style={{ ...S.pickSection, marginTop: 16 }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-              {TYPES.map((t) => (
+              {catalog.types.map((t) => (
                 <button
                   key={t.key}
-                  onClick={() => { setType(t.key); const it = itemsFor(t.key, group); if (it.length) setExercise(it[0]); }}
+                  onClick={() => { setType(t.key); const it = catItemsFor(catalog, t.key, group); if (it.length) setExercise(it[0]); }}
                   style={{ ...S.typeChip, ...(type === t.key ? S.typeChipOn : {}) }}
                 >
                   {t.label}
@@ -1502,13 +1559,13 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper }) {
               ))}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-              {GROUPS.map((g) => {
-                const empty = itemsFor(type, g).length === 0;
+              {catalog.groups.map((g) => {
+                const empty = catItemsFor(catalog, type, g).length === 0;
                 return (
                   <button
                     key={g}
                     disabled={empty}
-                    onClick={() => { setGroup(g); const it = itemsFor(type, g); if (it.length) setExercise(it[0]); }}
+                    onClick={() => { setGroup(g); const it = catItemsFor(catalog, type, g); if (it.length) setExercise(it[0]); }}
                     style={{ ...S.catChip, ...(group === g ? S.catChipOn : {}), ...(empty ? S.catChipOff : {}) }}
                   >
                     {g}
@@ -1698,6 +1755,187 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper }) {
             );
           })
         )}
+      </div>
+    </>
+  );
+}
+
+// ── Catalogue : créer / renommer / supprimer types, groupes et exercices ──
+function CatalogTab({ catalog, saveCatalog }) {
+  const [mType, setMType] = useState(catalog.types[0]?.key || null);
+  const [mGroup, setMGroup] = useState(catalog.groups[0] || null);
+  const [newTypeLabel, setNewTypeLabel] = useState("");
+  const [newTypeWeight, setNewTypeWeight] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newExoName, setNewExoName] = useState("");
+
+  const slugify = (s) =>
+    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || ("t" + Date.now());
+
+  const addType = () => {
+    const label = newTypeLabel.trim();
+    if (!label) return;
+    let key = slugify(label);
+    if (catalog.types.some((t) => t.key === key)) key = key + "-" + Date.now().toString(36);
+    saveCatalog({ ...catalog, types: [...catalog.types, { key, label, hasWeight: newTypeWeight }] });
+    setNewTypeLabel("");
+    setNewTypeWeight(false);
+    setMType(key);
+  };
+  const renameType = (key) => {
+    const cur = catalog.types.find((t) => t.key === key);
+    const label = prompt("Renommer le type", cur?.label || "");
+    if (!label || !label.trim()) return;
+    saveCatalog({ ...catalog, types: catalog.types.map((t) => (t.key === key ? { ...t, label: label.trim() } : t)) });
+  };
+  const toggleTypeWeight = (key) => {
+    saveCatalog({ ...catalog, types: catalog.types.map((t) => (t.key === key ? { ...t, hasWeight: !t.hasWeight } : t)) });
+  };
+  const deleteType = (key) => {
+    const n = catalog.exos.filter((e) => e.type === key).length;
+    if (!confirm(n ? `Supprimer ce type et ses ${n} exercice(s) ?` : "Supprimer ce type ?")) return;
+    const types = catalog.types.filter((t) => t.key !== key);
+    const exos = catalog.exos.filter((e) => e.type !== key);
+    saveCatalog({ ...catalog, types, exos });
+    if (mType === key) setMType(types[0]?.key || null);
+  };
+
+  const addGroup = () => {
+    const name = newGroupName.trim();
+    if (!name || catalog.groups.includes(name)) return;
+    saveCatalog({ ...catalog, groups: [...catalog.groups, name] });
+    setNewGroupName("");
+    setMGroup(name);
+  };
+  const renameGroup = (name) => {
+    const next = prompt("Renommer le groupe", name);
+    if (!next || !next.trim() || next.trim() === name) return;
+    const trimmed = next.trim();
+    saveCatalog({
+      ...catalog,
+      groups: catalog.groups.map((g) => (g === name ? trimmed : g)),
+      exos: catalog.exos.map((e) => (e.group === name ? { ...e, group: trimmed } : e)),
+    });
+    if (mGroup === name) setMGroup(trimmed);
+  };
+  const deleteGroup = (name) => {
+    const n = catalog.exos.filter((e) => e.group === name).length;
+    if (!confirm(n ? `Supprimer ce groupe et ses ${n} exercice(s) ?` : "Supprimer ce groupe ?")) return;
+    const groups = catalog.groups.filter((g) => g !== name);
+    const exos = catalog.exos.filter((e) => e.group !== name);
+    saveCatalog({ ...catalog, groups, exos });
+    if (mGroup === name) setMGroup(groups[0] || null);
+  };
+
+  const addExo = () => {
+    const name = newExoName.trim();
+    if (!name || !mType || !mGroup) return;
+    const id = "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    saveCatalog({ ...catalog, exos: [...catalog.exos, { id, name, type: mType, group: mGroup }] });
+    setNewExoName("");
+  };
+  const renameExo = (id) => {
+    const cur = catalog.exos.find((e) => e.id === id);
+    const name = prompt("Renommer l'exercice", cur?.name || "");
+    if (!name || !name.trim()) return;
+    saveCatalog({ ...catalog, exos: catalog.exos.map((e) => (e.id === id ? { ...e, name: name.trim() } : e)) });
+  };
+  const deleteExo = (id) => {
+    if (!confirm("Supprimer cet exercice du catalogue ?")) return;
+    saveCatalog({ ...catalog, exos: catalog.exos.filter((e) => e.id !== id) });
+  };
+
+  const currentExos = catalog.exos.filter((e) => e.type === mType && e.group === mGroup);
+
+  return (
+    <>
+      <div style={S.card}>
+        <div style={{ ...S.label, marginBottom: 12 }}>Types d'exercice</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+          {catalog.types.map((t) => (
+            <div key={t.key} style={{ ...S.chip, display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span onClick={() => renameType(t.key)} style={{ cursor: "pointer" }}>{t.label}</span>
+              <button
+                onClick={() => toggleTypeWeight(t.key)}
+                title="Bascule le suivi de charge (kg) pour ce type"
+                style={{ ...S.xBtn, width: 24, height: 24, fontSize: 10, fontWeight: 800, color: t.hasWeight ? C.lime : C.muted, borderColor: t.hasWeight ? C.lime : C.line }}
+              >
+                kg
+              </button>
+              <button onClick={() => deleteType(t.key)} style={{ ...S.xBtn, width: 24, height: 24 }}>×</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <input value={newTypeLabel} onChange={(e) => setNewTypeLabel(e.target.value)} placeholder="Nouveau type (ex. Cardio)" style={{ ...S.searchInput, flex: 1 }} />
+          <button onClick={addType} style={S.launch}>+ Ajouter</button>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, color: C.muted, fontSize: 13 }}>
+          <input type="checkbox" checked={newTypeWeight} onChange={(e) => setNewTypeWeight(e.target.checked)} />
+          Implique une charge externe (kg)
+        </label>
+      </div>
+
+      <div style={S.card}>
+        <div style={{ ...S.label, marginBottom: 12 }}>Groupes musculaires</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+          {catalog.groups.map((g) => (
+            <div key={g} style={{ ...S.catChip, display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span onClick={() => renameGroup(g)} style={{ cursor: "pointer" }}>{g}</span>
+              <button onClick={() => deleteGroup(g)} style={{ ...S.xBtn, width: 20, height: 20, fontSize: 12 }}>×</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Nouveau groupe (ex. Cou)" style={{ ...S.searchInput, flex: 1 }} />
+          <button onClick={addGroup} style={S.launch}>+ Ajouter</button>
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={{ ...S.label, marginBottom: 12 }}>Exercices</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+          {catalog.types.map((t) => (
+            <button key={t.key} onClick={() => setMType(t.key)} style={{ ...S.typeChip, flex: "unset", padding: "10px 16px", ...(mType === t.key ? S.typeChipOn : {}) }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+          {catalog.groups.map((g) => (
+            <button key={g} onClick={() => setMGroup(g)} style={{ ...S.catChip, ...(mGroup === g ? S.catChipOn : {}) }}>
+              {g}
+            </button>
+          ))}
+        </div>
+
+        {!mType || !mGroup ? (
+          <div style={{ color: C.muted, fontSize: 14, marginBottom: 14 }}>Crée au moins un type et un groupe pour ajouter des exercices.</div>
+        ) : currentExos.length === 0 ? (
+          <div style={{ color: C.muted, fontSize: 14, marginBottom: 14 }}>Aucun exercice ici.</div>
+        ) : (
+          <div style={{ marginBottom: 14 }}>
+            {currentExos.map((e) => (
+              <div key={e.id} style={S.draftRow}>
+                <span onClick={() => renameExo(e.id)} style={{ flex: 1, color: C.chalk, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                  {e.name}
+                </span>
+                <button onClick={() => deleteExo(e.id)} style={S.xBtn}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={newExoName}
+            onChange={(e) => setNewExoName(e.target.value)}
+            placeholder={mType && mGroup ? `Nouvel exercice · ${mGroup}` : "Choisis un type et un groupe d'abord"}
+            style={{ ...S.searchInput, flex: 1 }}
+          />
+          <button onClick={addExo} style={{ ...S.launch, opacity: mType && mGroup ? 1 : 0.4 }}>+ Ajouter</button>
+        </div>
       </div>
     </>
   );

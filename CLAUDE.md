@@ -30,7 +30,13 @@ Fonctionnalités déjà implémentées (toutes dans `src/App.jsx`) :
 - **Onglet Progrès** : pour un exercice choisi (même sélecteur type → groupe
   → exercice), graphique en barres + tableau brut par séance. Métrique
   affichée : volume (reps × poids) si des séries pèsent quelque chose, sinon
-  temps total ou reps totales selon le mode dominant.
+  temps total ou reps totales selon le mode dominant. KPIs (séances, séries,
+  reps, temps, volume, charge max, exercice favori) + objectifs personnels
+  avec suivi de progression (voir §3, clé `goal:<id>`).
+- **Onglet Catalogue** : le catalogue d'exercices (types, groupes musculaires,
+  exercices) est entièrement éditable — créer/renommer/supprimer un type, un
+  groupe ou un exercice, et marquer un type comme impliquant une charge
+  externe (kg). Voir §3 (clé `catalog:data`) et §4.
 - **Persistance** : la séance guidée en cours survit à un changement d'onglet
   et à un rechargement (restaurée au démarrage).
 - **Backend optionnel (Cloudflare)** : `worker/` contient une API D1 minimale
@@ -80,7 +86,7 @@ Méthodes de l'interface (toutes async) :
 
 ## 3. Modèle de données (clés de stockage)
 
-Quatre familles de clés :
+Cinq familles de clés :
 
 - `day:<YYYY-MM-DD>` → une **journée** : `{ sets: Set[] }`
 - `wk:<id>` → un **entraînement** réutilisable : `{ id, name, blocks: Block[] }`
@@ -92,6 +98,8 @@ Quatre familles de clés :
     tuiles KPI et le calcul de progression d'un objectif)
   - La progression se calcule sur les séries loguées **depuis `createdAt`**
     uniquement (pas d'historique rétroactif compté dans un objectif).
+- `catalog:data` → le **catalogue d'exercices** (types, groupes, exercices),
+  entièrement éditable depuis l'onglet Catalogue. Voir §4 pour sa forme.
 
 ### Set (une série enregistrée)
 ```
@@ -150,15 +158,37 @@ dépend de sa position (entre-exos, fin-de-tour, ou 0 sur la dernière série).
 
 ## 4. Catalogue d'exercices
 
-Deux axes croisés, définis en haut de `App.jsx` :
-- `TYPES` : `charges` / `poids` (poids du corps)
-- `GROUPS` : 16 groupes musculaires
-- `EXOS[type][group]` : tableau de noms d'exercices
-- `ALL_EXOS` : liste aplatie (pour la recherche), chaque entrée
-  `{ name, type, group }`
-- `itemsFor(type, group)` : helper renvoyant la liste pour un couple donné
+**Entièrement dynamique et éditable depuis l'onglet Catalogue** — plus de
+liste figée dans le code. Le catalogue vit dans le state `catalog` de `App`
+(persisté sous `catalog:data`), de forme :
+```
+{
+  types: [ { key, label, hasWeight } ],  // ex. {key:"charges", label:"Avec charges", hasWeight:true}
+  groups: [ string ],                    // ex. "Pectoraux", "Cou"...
+  exos: [ { id, name, type, group } ],   // type/group référencent les clés/noms ci-dessus
+}
+```
+- `hasWeight` sur un type détermine si le champ **Charge (kg)** apparaît pour
+  ses exercices (log du jour, rattrapage, blocs d'entraînement) — c'est ce
+  flag qu'il faut lire (`catTypeHasWeight`), plus jamais une comparaison en
+  dur du genre `type === "charges"`.
+- `DEFAULT_TYPES` / `DEFAULT_GROUPS` / `DEFAULT_EXOS` (haut de `App.jsx`) ne
+  servent plus qu'à **amorcer** le catalogue au tout premier lancement
+  (`buildDefaultCatalog()`) ; ne pas les utiliser ailleurs dans le code.
+- Helpers opérant sur un catalogue : `catItemsFor(catalog, type, group)`,
+  `catAllExos(catalog)`, `catTypeLabel(catalog, key)`, `catTypeHasWeight(catalog, key)`.
+- Renommer/supprimer un type ou un groupe **cascade** sur les exercices qui
+  lui appartiennent (confirmation demandée si le nombre d'exercices impactés
+  est non nul). Les `Set` déjà loggués gardent le nom/texte tel quel — un
+  renommage ne réécrit pas l'historique, seul le catalogue change.
+- `CatalogTab` (composant dédié) porte toute la UI de gestion : types,
+  groupes, exercices, avec `prompt()`/`confirm()` natifs pour renommer/
+  supprimer (pas de dépendance ajoutée).
 
-Pour ajouter/renommer des exercices, édite `EXOS` uniquement ; le reste suit.
+Tous les sélecteurs de l'app (Aujourd'hui/Rattrapage via `exerciseChips`,
+constructeur de bloc dans `WorkoutTab`, filtre de `ProgressTab`) lisent ce
+même `catalog`, passé en prop où nécessaire — aucun composant ne doit
+retomber sur les constantes `DEFAULT_*`.
 
 ---
 
