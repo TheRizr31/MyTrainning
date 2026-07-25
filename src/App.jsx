@@ -744,7 +744,7 @@ export default function App() {
         )}
 
         {!run && tab === "progress" && (
-          <ProgressTab history={history} stepper={stepper} />
+          <ProgressTab history={history} />
         )}
 
         {run && (
@@ -1239,11 +1239,39 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
   );
 }
 
-// ── Progress tab: chart + raw data per exercise ───────────────
+// ── Progress tab: global overview by default, with an optional
+// per-exercise filter, bucketed by week / month / year ─────────
+const PERIODS = [
+  { key: "week", label: "Semaine" },
+  { key: "month", label: "Mois" },
+  { key: "year", label: "Année" },
+];
+
+function bucketKey(dateStr, period) {
+  const d = new Date(dateStr + "T00:00:00");
+  if (period === "year") return String(d.getFullYear());
+  if (period === "month") return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  // week: clé = lundi de la semaine
+  const dow = (d.getDay() + 6) % 7; // 0 = lundi
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - dow);
+  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
+}
+
+function bucketLabel(key, period) {
+  if (period === "year") return key;
+  if (period === "month") {
+    const [y, m] = key.split("-");
+    return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+  }
+  return "Sem. " + new Date(key + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+}
+
 function ProgressTab({ history }) {
+  const [period, setPeriod] = useState("week");
   const [type, setType] = useState("poids");
   const [group, setGroup] = useState(GROUPS[0]);
-  const [exercise, setExercise] = useState(itemsFor("poids", GROUPS[0])[0]);
+  const [exercise, setExercise] = useState(null); // null = vue globale (tous exercices)
   const [search, setSearch] = useState("");
 
   const groupItems = itemsFor(type, group);
@@ -1251,43 +1279,57 @@ function ProgressTab({ history }) {
   const searchHits = q ? ALL_EXOS.filter((x) => x.name.toLowerCase().includes(q)) : null;
   const typeLabel = (t) => (TYPES.find((x) => x.key === t) || {}).label;
 
-  // One row per day that has data for the selected exercise, oldest first.
-  const dates = Object.keys(history).sort();
-  const rows = [];
-  dates.forEach((d) => {
-    const sets = (history[d].sets || []).filter((s) => s.exercise === exercise);
-    if (!sets.length) return;
-    const hasWeight = sets.some((s) => s.weight > 0);
-    const isTime = sets.every((s) => s.mode === "time");
-    let metric, label, unit;
-    if (hasWeight) {
-      metric = sets.reduce((a, s) => a + s.reps * (s.weight || 0), 0);
-      label = "Volume";
-      unit = "kg";
-    } else if (isTime) {
-      metric = sets.reduce((a, s) => a + s.reps, 0);
-      label = "Temps total";
-      unit = "s";
-    } else {
-      metric = sets.reduce((a, s) => a + s.reps, 0);
-      label = "Reps totales";
-      unit = "";
+  // Toutes les séries, aplaties avec leur date.
+  const allSets = [];
+  Object.keys(history).forEach((d) => {
+    (history[d].sets || []).forEach((s) => allSets.push({ ...s, date: d }));
+  });
+  const scoped = exercise ? allSets.filter((s) => s.exercise === exercise) : allSets;
+
+  // Regroupement par période (semaine/mois/année), chronologique.
+  const buckets = {};
+  scoped.forEach((s) => {
+    const key = bucketKey(s.date, period);
+    (buckets[key] = buckets[key] || []).push(s);
+  });
+  const bucketKeys = Object.keys(buckets).sort();
+
+  const rows = bucketKeys.map((key) => {
+    const sets = buckets[key];
+    if (exercise) {
+      const hasWeight = sets.some((s) => s.weight > 0);
+      const isTime = sets.every((s) => s.mode === "time");
+      let metric, label, unit;
+      if (hasWeight) { metric = sets.reduce((a, s) => a + s.reps * (s.weight || 0), 0); label = "Volume"; unit = "kg"; }
+      else if (isTime) { metric = sets.reduce((a, s) => a + s.reps, 0); label = "Temps total"; unit = "s"; }
+      else { metric = sets.reduce((a, s) => a + s.reps, 0); label = "Reps totales"; unit = ""; }
+      const maxWeight = hasWeight ? Math.max(...sets.map((s) => s.weight || 0)) : null;
+      return { key, sets, metric, label, unit, maxWeight };
     }
-    const maxWeight = hasWeight ? Math.max(...sets.map((s) => s.weight || 0)) : null;
-    rows.push({ date: d, sets, metric, label, unit, maxWeight });
+    // Vue globale : nombre de séries + top exercices de la période.
+    const byExo = {};
+    sets.forEach((s) => { byExo[s.exercise] = (byExo[s.exercise] || 0) + 1; });
+    const top = Object.entries(byExo).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    return { key, sets, metric: sets.length, label: "Séries", unit: "", top };
   });
 
   const maxMetric = Math.max(1, ...rows.map((r) => r.metric));
-  const shortDate = (k) => new Date(k + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 
   return (
     <>
       <div style={S.card}>
-        <div style={S.label}>Exercice à suivre</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={S.label}>Filtrer par exercice</div>
+          {exercise && (
+            <button onClick={() => { setExercise(null); setSearch(""); }} style={S.ghostSmall}>
+              Tous les exercices
+            </button>
+          )}
+        </div>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍  Rechercher un exercice…"
+          placeholder="🔍  Rechercher un exercice… (laisser vide = vue globale)"
           style={S.searchInput}
         />
         {searchHits ? (
@@ -1315,7 +1357,7 @@ function ProgressTab({ history }) {
               {TYPES.map((t) => (
                 <button
                   key={t.key}
-                  onClick={() => { setType(t.key); const it = itemsFor(t.key, group); if (it.length && !it.includes(exercise)) setExercise(it[0]); }}
+                  onClick={() => { setType(t.key); const it = itemsFor(t.key, group); if (it.length) setExercise(it[0]); }}
                   style={{ ...S.typeChip, ...(type === t.key ? S.typeChipOn : {}) }}
                 >
                   {t.label}
@@ -1329,7 +1371,7 @@ function ProgressTab({ history }) {
                   <button
                     key={g}
                     disabled={empty}
-                    onClick={() => { setGroup(g); const it = itemsFor(type, g); if (it.length && !it.includes(exercise)) setExercise(it[0]); }}
+                    onClick={() => { setGroup(g); const it = itemsFor(type, g); if (it.length) setExercise(it[0]); }}
                     style={{ ...S.catChip, ...(group === g ? S.catChipOn : {}), ...(empty ? S.catChipOff : {}) }}
                   >
                     {g}
@@ -1354,24 +1396,34 @@ function ProgressTab({ history }) {
 
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-          <div style={S.label}>{exercise}</div>
-          <div style={{ fontSize: 13, color: C.muted }}>{rows.length} séance{rows.length > 1 ? "s" : ""}</div>
+          <div style={S.label}>{exercise || "Tous les exercices"}</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPeriod(p.key)}
+                style={{ ...S.ghostSmall, ...(period === p.key ? { background: C.lime, color: C.ground, borderColor: C.lime, fontWeight: 800 } : {}) }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {rows.length === 0 ? (
           <div style={{ color: C.muted, fontSize: 14, padding: "8px 0" }}>
-            Aucune donnée pour cet exercice pour l'instant.
+            {exercise ? "Aucune donnée pour cet exercice pour l'instant." : "Aucune donnée pour l'instant — logue une série pour voir apparaître ta progression."}
           </div>
         ) : (
           <>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 150, overflowX: "auto", padding: "8px 2px 4px" }}>
               {rows.map((r, i) => (
-                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 30 }}>
+                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 34 }}>
                   <div style={{ fontSize: 10, color: C.muted, marginBottom: 4, whiteSpace: "nowrap" }}>
                     {Math.round(r.metric)}{r.unit}
                   </div>
                   <div style={{ width: 22, height: Math.max(4, (r.metric / maxMetric) * 100), background: C.lime, borderRadius: 5 }} />
-                  <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>{shortDate(r.date)}</div>
+                  <div style={{ fontSize: 10, color: C.muted, marginTop: 6, whiteSpace: "nowrap" }}>{bucketLabel(r.key, period)}</div>
                 </div>
               ))}
             </div>
@@ -1379,12 +1431,21 @@ function ProgressTab({ history }) {
             <div style={{ marginTop: 18 }}>
               {rows.slice().reverse().map((r, i) => (
                 <div key={i} style={S.histRow}>
-                  <div style={{ textTransform: "capitalize", color: C.chalk, fontSize: 14 }}>
-                    {fmtDate(r.date)}
+                  <div style={{ color: C.chalk, fontSize: 14 }}>
+                    {bucketLabel(r.key, period)}
                   </div>
                   <div style={{ color: C.muted, fontSize: 13, textAlign: "right" }}>
-                    {r.sets.length} série{r.sets.length > 1 ? "s" : ""} · <span style={{ color: C.chalk, fontWeight: 700 }}>{r.label} {Math.round(r.metric)}{r.unit}</span>
-                    {r.maxWeight ? ` · max ${r.maxWeight}kg` : ""}
+                    {exercise ? (
+                      <>
+                        {r.sets.length} série{r.sets.length > 1 ? "s" : ""} · <span style={{ color: C.chalk, fontWeight: 700 }}>{r.label} {Math.round(r.metric)}{r.unit}</span>
+                        {r.maxWeight ? ` · max ${r.maxWeight}kg` : ""}
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ color: C.chalk, fontWeight: 700 }}>{r.metric} série{r.metric > 1 ? "s" : ""}</span>
+                        {r.top.length ? " · " + r.top.map(([name, n]) => `${name} ×${n}`).join(", ") : ""}
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
