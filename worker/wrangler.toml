@@ -1,0 +1,8 @@
+name = "suivi-muscu-api"
+main = "src/index.js"
+compatibility_date = "2026-07-25"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "suivi-muscu"
+database_id = "f666d98c-2792-46fa-a6da-34285cb09683"
