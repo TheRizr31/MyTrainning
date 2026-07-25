@@ -155,6 +155,7 @@ function stopAlarm() {
 export default function App() {
   const [history, setHistory] = useState({}); // { dateKey: session }
   const [workouts, setWorkouts] = useState({}); // { id: {name, blocks} }
+  const [goals, setGoals] = useState({}); // { id: {id, exercise, metric, target, unit, deadline, createdAt} }
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("today"); // today | catchup | workout
   const [type, setType] = useState("poids");
@@ -209,6 +210,19 @@ export default function App() {
         }
       } catch {}
       try {
+        const gr = await window.storage.list("goal:");
+        if (gr?.keys?.length) {
+          const gs = {};
+          for (const k of gr.keys) {
+            try {
+              const r = await window.storage.get(k);
+              if (r) gs[k.replace("goal:", "")] = JSON.parse(r.value);
+            } catch {}
+          }
+          setGoals(gs);
+        }
+      } catch {}
+      try {
         const rr = await window.storage.get("run:active");
         if (rr) {
           const parsed = JSON.parse(rr.value);
@@ -230,6 +244,15 @@ export default function App() {
   const deleteWorkout = async (id) => {
     setWorkouts((w) => { const n = { ...w }; delete n[id]; return n; });
     try { await window.storage.delete("wk:" + id); } catch {}
+  };
+
+  const saveGoal = async (g) => {
+    setGoals((gs) => ({ ...gs, [g.id]: g }));
+    try { await window.storage.set("goal:" + g.id, JSON.stringify(g)); } catch {}
+  };
+  const deleteGoal = async (id) => {
+    setGoals((gs) => { const n = { ...gs }; delete n[id]; return n; });
+    try { await window.storage.delete("goal:" + id); } catch {}
   };
 
   const saveDay = async (key, session) => {
@@ -744,7 +767,7 @@ export default function App() {
         )}
 
         {!run && tab === "progress" && (
-          <ProgressTab history={history} />
+          <ProgressTab history={history} goals={goals} saveGoal={saveGoal} deleteGoal={deleteGoal} stepper={stepper} />
         )}
 
         {run && (
@@ -1267,7 +1290,31 @@ function bucketLabel(key, period) {
   return "Sem. " + new Date(key + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 }
 
-function ProgressTab({ history }) {
+// Une seule fonction pour calculer n'importe quel KPI/objectif à partir
+// d'une liste de séries — évite de dupliquer la logique entre les tuiles
+// de stats et le suivi d'objectifs.
+function metricValue(sets, metric) {
+  switch (metric) {
+    case "sessions": return new Set(sets.map((s) => s.date)).size;
+    case "series": return sets.length;
+    case "reps": return sets.filter((s) => s.mode !== "time").reduce((a, s) => a + s.reps, 0);
+    case "time": return sets.filter((s) => s.mode === "time").reduce((a, s) => a + s.reps, 0);
+    case "volume": return sets.reduce((a, s) => a + (s.weight ? s.reps * s.weight : 0), 0);
+    case "weight": return sets.reduce((a, s) => Math.max(a, s.weight || 0), 0);
+    default: return 0;
+  }
+}
+
+const METRIC_INFO = {
+  sessions: { label: "Séances", unit: "", step: 1 },
+  series: { label: "Séries", unit: "", step: 1 },
+  reps: { label: "Reps", unit: "", step: 5 },
+  time: { label: "Temps", unit: "s", step: 30 },
+  volume: { label: "Volume", unit: "kg", step: 50 },
+  weight: { label: "Charge max", unit: "kg", step: 2.5 },
+};
+
+function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper }) {
   const [period, setPeriod] = useState("week");
   const [type, setType] = useState("poids");
   const [group, setGroup] = useState(GROUPS[0]);
@@ -1314,6 +1361,53 @@ function ProgressTab({ history }) {
   });
 
   const maxMetric = Math.max(1, ...rows.map((r) => r.metric));
+
+  // ── KPIs clés (tout l'historique, respecte le filtre exercice) ──
+  const kSessions = metricValue(scoped, "sessions");
+  const kSeries = metricValue(scoped, "series");
+  const kReps = metricValue(scoped, "reps");
+  const kTime = metricValue(scoped, "time");
+  const kVolume = metricValue(scoped, "volume");
+  const kWeight = metricValue(scoped, "weight");
+  let favorite = null;
+  if (!exercise) {
+    const counts = {};
+    allSets.forEach((s) => { counts[s.exercise] = (counts[s.exercise] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    favorite = top ? top[0] : null;
+  }
+
+  // ── Objectifs ─────────────────────────────────────────────────
+  const availableMetrics = exercise
+    ? (kWeight > 0 ? ["weight", "volume", "sessions", "series"] : kTime > 0 ? ["time", "sessions", "series"] : ["reps", "sessions", "series"])
+    : ["sessions", "series", "reps", "volume", "time"];
+  const scopedGoals = Object.values(goals).filter((g) => (exercise ? g.exercise === exercise : !g.exercise));
+
+  const [showGoalForm, setShowGoalForm] = useState(false);
+  const [gMetric, setGMetric] = useState("sessions");
+  const [gTarget, setGTarget] = useState(10);
+  const [gDeadline, setGDeadline] = useState("");
+
+  const addGoal = () => {
+    saveGoal({
+      id: "g" + Date.now(),
+      exercise: exercise || null,
+      metric: gMetric,
+      target: gTarget,
+      unit: METRIC_INFO[gMetric].unit,
+      deadline: gDeadline || null,
+      createdAt: new Date().toISOString(),
+    });
+    setShowGoalForm(false);
+    setGTarget(10);
+    setGDeadline("");
+  };
+
+  const goalProgress = (g) => {
+    const relevant = allSets.filter((s) => (g.exercise ? s.exercise === g.exercise : true) && s.date >= g.createdAt.slice(0, 10));
+    const current = metricValue(relevant, g.metric);
+    return { current, pct: Math.min(100, Math.round((current / g.target) * 100)) };
+  };
 
   return (
     <>
@@ -1395,6 +1489,54 @@ function ProgressTab({ history }) {
       </div>
 
       <div style={S.card}>
+        <div style={{ ...S.label, marginBottom: 14 }}>Vue d'ensemble{exercise ? ` · ${exercise}` : ""}</div>
+        {scoped.length === 0 ? (
+          <div style={{ color: C.muted, fontSize: 14 }}>Rien à afficher pour l'instant.</div>
+        ) : (
+          <div style={S.statGrid}>
+            <div style={S.statTile}>
+              <div style={S.statValue}>{kSessions}</div>
+              <div style={S.statLabel}>Séances</div>
+            </div>
+            <div style={S.statTile}>
+              <div style={S.statValue}>{kSeries}</div>
+              <div style={S.statLabel}>Séries</div>
+            </div>
+            {kReps > 0 && (
+              <div style={S.statTile}>
+                <div style={S.statValue}>{kReps}</div>
+                <div style={S.statLabel}>Reps totales</div>
+              </div>
+            )}
+            {kTime > 0 && (
+              <div style={S.statTile}>
+                <div style={S.statValue}>{fmtVal(kTime, "time")}</div>
+                <div style={S.statLabel}>Temps total</div>
+              </div>
+            )}
+            {kVolume > 0 && (
+              <div style={S.statTile}>
+                <div style={S.statValue}>{Math.round(kVolume)}<span style={{ fontSize: 13 }}>kg</span></div>
+                <div style={S.statLabel}>Volume soulevé</div>
+              </div>
+            )}
+            {kWeight > 0 && (
+              <div style={S.statTile}>
+                <div style={S.statValue}>{kWeight}<span style={{ fontSize: 13 }}>kg</span></div>
+                <div style={S.statLabel}>Charge max</div>
+              </div>
+            )}
+            {favorite && (
+              <div style={{ ...S.statTile, flexBasis: "100%" }}>
+                <div style={{ ...S.statValue, fontSize: 16 }}>{favorite}</div>
+                <div style={S.statLabel}>Exercice favori</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
           <div style={S.label}>{exercise || "Tous les exercices"}</div>
           <div style={{ display: "flex", gap: 6 }}>
@@ -1451,6 +1593,67 @@ function ProgressTab({ history }) {
               ))}
             </div>
           </>
+        )}
+      </div>
+
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={S.label}>Objectifs{exercise ? ` · ${exercise}` : " · globaux"}</div>
+          <button onClick={() => setShowGoalForm((v) => !v)} style={S.ghostSmall}>
+            {showGoalForm ? "Annuler" : "+ Objectif"}
+          </button>
+        </div>
+
+        {showGoalForm && (
+          <div style={{ ...S.pickSection, marginBottom: 14 }}>
+            <div style={S.gridLabel}>Métrique</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+              {availableMetrics.map((m) => (
+                <button key={m} onClick={() => setGMetric(m)} style={{ ...S.catChip, ...(gMetric === m ? S.catChipOn : {}) }}>
+                  {METRIC_INFO[m].label}
+                </button>
+              ))}
+            </div>
+            <div style={S.gridLabel}>Cible</div>
+            <div style={{ marginBottom: 14 }}>{stepper(gTarget, setGTarget, 1, 100000, METRIC_INFO[gMetric].step, METRIC_INFO[gMetric].unit)}</div>
+            <div style={S.gridLabel}>Échéance (optionnel)</div>
+            <input
+              type="date"
+              value={gDeadline}
+              min={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setGDeadline(e.target.value)}
+              style={{ ...S.dateInput, marginBottom: 14 }}
+            />
+            <button onClick={addGoal} style={S.validate}>Créer l'objectif</button>
+          </div>
+        )}
+
+        {scopedGoals.length === 0 ? (
+          <div style={{ color: C.muted, fontSize: 14 }}>Aucun objectif{exercise ? " pour cet exercice" : ""} pour l'instant.</div>
+        ) : (
+          scopedGoals.map((g) => {
+            const { current, pct } = goalProgress(g);
+            const daysLeft = g.deadline ? Math.ceil((new Date(g.deadline + "T00:00:00") - new Date()) / 86400000) : null;
+            const done = pct >= 100;
+            return (
+              <div key={g.id} style={S.goalCard}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ color: C.chalk, fontSize: 14, fontWeight: 700 }}>{METRIC_INFO[g.metric].label}</div>
+                  <button onClick={() => deleteGoal(g.id)} style={S.xBtn}>×</button>
+                </div>
+                <div style={{ color: C.muted, fontSize: 13, marginTop: 2 }}>
+                  {Math.round(current)}{g.unit} / {g.target}{g.unit}
+                  {daysLeft != null && (daysLeft >= 0 ? ` · ${daysLeft}j restants` : " · échéance dépassée")}
+                </div>
+                <div style={S.progressTrack}>
+                  <div style={{ ...S.progressFill, width: `${pct}%`, background: done ? C.done : C.lime }} />
+                </div>
+                <div style={{ color: done ? C.done : C.muted, fontSize: 12, fontWeight: 700, marginTop: 4 }}>
+                  {pct}%{done ? " · Objectif atteint 🎉" : ""}
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
     </>
@@ -1573,4 +1776,14 @@ const S = {
     display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700,
   },
   histRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderTop: `1px solid ${C.line}` },
+  statGrid: { display: "flex", flexWrap: "wrap", gap: 10 },
+  statTile: {
+    flex: "1 1 105px", minWidth: 105, background: C.panelHi, border: `1px solid ${C.line}`,
+    borderRadius: 12, padding: "12px 14px",
+  },
+  statValue: { fontSize: 22, fontWeight: 800, color: C.chalk, lineHeight: 1.1 },
+  statLabel: { fontSize: 11, color: C.muted, marginTop: 4, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 },
+  goalCard: { background: C.panelHi, border: `1px solid ${C.line}`, borderRadius: 12, padding: 14, marginBottom: 10 },
+  progressTrack: { height: 8, borderRadius: 999, background: C.ground, overflow: "hidden", marginTop: 10 },
+  progressFill: { height: "100%", borderRadius: 999, transition: "width .3s" },
 };

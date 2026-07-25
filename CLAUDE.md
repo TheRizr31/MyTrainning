@@ -80,11 +80,18 @@ Méthodes de l'interface (toutes async) :
 
 ## 3. Modèle de données (clés de stockage)
 
-Trois familles de clés :
+Quatre familles de clés :
 
 - `day:<YYYY-MM-DD>` → une **journée** : `{ sets: Set[] }`
 - `wk:<id>` → un **entraînement** réutilisable : `{ id, name, blocks: Block[] }`
 - `run:active` → la **séance guidée en cours** (ou absente) : `Run`
+- `goal:<id>` → un **objectif** (onglet Progrès) : `{ id, exercise, metric, target, unit, deadline, createdAt }`
+  - `exercise` : `string | null` (`null` = objectif global toutes catégories)
+  - `metric` : `"sessions" | "series" | "reps" | "time" | "volume" | "weight"`
+    (voir `metricValue()` dans `App.jsx` — même fonction utilisée pour les
+    tuiles KPI et le calcul de progression d'un objectif)
+  - La progression se calcule sur les séries loguées **depuis `createdAt`**
+    uniquement (pas d'historique rétroactif compté dans un objectif).
 
 ### Set (une série enregistrée)
 ```
