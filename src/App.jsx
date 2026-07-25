@@ -691,7 +691,7 @@ export default function App() {
 
         <header style={{ marginBottom: 22 }}>
           <div style={S.eyebrow}>Séance du soir</div>
-          <h1 style={S.h1}>Suivi pompes</h1>
+          <h1 style={S.h1}>MyTrainning</h1>
           <div style={{ color: C.muted, fontSize: 14, marginTop: 2, textTransform: "capitalize" }}>{fmtDate(tk)}</div>
         </header>
 
