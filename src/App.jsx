@@ -1403,6 +1403,27 @@ function bucketLabel(key, period) {
   return "Sem. " + new Date(key + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 }
 
+// Résume un paquet de séries — soit pour un exercice précis (volume/temps/reps),
+// soit globalement (nombre de séries + top exercices). Utilisé aussi bien pour
+// une période entière (semaine/mois/année) que pour le détail jour par jour
+// affiché en "zoomant" sur une période.
+function summarizeSets(sets, exercise) {
+  if (exercise) {
+    const hasWeight = sets.some((s) => s.weight > 0);
+    const isTime = sets.every((s) => s.mode === "time");
+    let metric, label, unit;
+    if (hasWeight) { metric = sets.reduce((a, s) => a + s.reps * (s.weight || 0), 0); label = "Volume"; unit = "kg"; }
+    else if (isTime) { metric = sets.reduce((a, s) => a + s.reps, 0); label = "Temps total"; unit = "s"; }
+    else { metric = sets.reduce((a, s) => a + s.reps, 0); label = "Reps totales"; unit = ""; }
+    const maxWeight = hasWeight ? Math.max(...sets.map((s) => s.weight || 0)) : null;
+    return { metric, label, unit, maxWeight };
+  }
+  const byExo = {};
+  sets.forEach((s) => { byExo[s.exercise] = (byExo[s.exercise] || 0) + 1; });
+  const top = Object.entries(byExo).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  return { metric: sets.length, label: "Séries", unit: "", top };
+}
+
 // Une seule fonction pour calculer n'importe quel KPI/objectif à partir
 // d'une liste de séries — évite de dupliquer la logique entre les tuiles
 // de stats et le suivi d'objectifs.
@@ -1454,26 +1475,20 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog })
   });
   const bucketKeys = Object.keys(buckets).sort();
 
-  const rows = bucketKeys.map((key) => {
-    const sets = buckets[key];
-    if (exercise) {
-      const hasWeight = sets.some((s) => s.weight > 0);
-      const isTime = sets.every((s) => s.mode === "time");
-      let metric, label, unit;
-      if (hasWeight) { metric = sets.reduce((a, s) => a + s.reps * (s.weight || 0), 0); label = "Volume"; unit = "kg"; }
-      else if (isTime) { metric = sets.reduce((a, s) => a + s.reps, 0); label = "Temps total"; unit = "s"; }
-      else { metric = sets.reduce((a, s) => a + s.reps, 0); label = "Reps totales"; unit = ""; }
-      const maxWeight = hasWeight ? Math.max(...sets.map((s) => s.weight || 0)) : null;
-      return { key, sets, metric, label, unit, maxWeight };
-    }
-    // Vue globale : nombre de séries + top exercices de la période.
-    const byExo = {};
-    sets.forEach((s) => { byExo[s.exercise] = (byExo[s.exercise] || 0) + 1; });
-    const top = Object.entries(byExo).sort((a, b) => b[1] - a[1]).slice(0, 3);
-    return { key, sets, metric: sets.length, label: "Séries", unit: "", top };
-  });
+  const rows = bucketKeys.map((key) => ({ key, sets: buckets[key], ...summarizeSets(buckets[key], exercise) }));
 
   const maxMetric = Math.max(1, ...rows.map((r) => r.metric));
+
+  // ── Zoom : détail jour par jour d'une période cliquée ───────────
+  const [zoomKey, setZoomKey] = useState(null);
+  const toggleZoom = (key) => setZoomKey((cur) => (cur === key ? null : key));
+  const zoomDays = {};
+  (zoomKey ? buckets[zoomKey] || [] : []).forEach((s) => {
+    (zoomDays[s.date] = zoomDays[s.date] || []).push(s);
+  });
+  const zoomDayRows = Object.keys(zoomDays).sort().reverse().map((d) => ({
+    date: d, sets: zoomDays[d], ...summarizeSets(zoomDays[d], exercise),
+  }));
 
   // ── KPIs clés (tout l'historique, respecte le filtre exercice) ──
   const kSessions = metricValue(scoped, "sessions");
@@ -1671,21 +1686,61 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog })
           </div>
         ) : (
           <>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>Touche une barre pour zoomer jour par jour</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 150, overflowX: "auto", padding: "8px 2px 4px" }}>
               {rows.map((r, i) => (
-                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 34 }}>
-                  <div style={{ fontSize: 10, color: C.muted, marginBottom: 4, whiteSpace: "nowrap" }}>
+                <button
+                  key={i}
+                  onClick={() => toggleZoom(r.key)}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 34, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                >
+                  <div style={{ fontSize: 10, color: zoomKey === r.key ? C.chalk : C.muted, fontWeight: zoomKey === r.key ? 800 : 400, marginBottom: 4, whiteSpace: "nowrap" }}>
                     {Math.round(r.metric)}{r.unit}
                   </div>
-                  <div style={{ width: 22, height: Math.max(4, (r.metric / maxMetric) * 100), background: C.lime, borderRadius: 5 }} />
-                  <div style={{ fontSize: 10, color: C.muted, marginTop: 6, whiteSpace: "nowrap" }}>{bucketLabel(r.key, period)}</div>
-                </div>
+                  <div style={{ width: 22, height: Math.max(4, (r.metric / maxMetric) * 100), background: zoomKey === r.key ? C.effort : C.lime, borderRadius: 5, boxShadow: zoomKey === r.key ? `0 0 0 2px ${C.effort}55` : "none" }} />
+                  <div style={{ fontSize: 10, color: zoomKey === r.key ? C.chalk : C.muted, fontWeight: zoomKey === r.key ? 800 : 400, marginTop: 6, whiteSpace: "nowrap" }}>{bucketLabel(r.key, period)}</div>
+                </button>
               ))}
             </div>
 
+            {zoomKey && (
+              <div style={{ ...S.pickSection, marginTop: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ color: C.effort, fontSize: 13, fontWeight: 700 }}>Détail · {bucketLabel(zoomKey, period)}</div>
+                  <button onClick={() => setZoomKey(null)} style={S.ghostSmall}>Fermer</button>
+                </div>
+                {zoomDayRows.length === 0 ? (
+                  <div style={{ color: C.muted, fontSize: 13 }}>Rien ce jour-là.</div>
+                ) : (
+                  zoomDayRows.map((r, i) => (
+                    <div key={i} style={{ ...S.histRow, borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
+                      <div style={{ textTransform: "capitalize", color: C.chalk, fontSize: 13 }}>{fmtDate(r.date)}</div>
+                      <div style={{ color: C.muted, fontSize: 12, textAlign: "right" }}>
+                        {exercise ? (
+                          <>
+                            {r.sets.length} série{r.sets.length > 1 ? "s" : ""} · <span style={{ color: C.chalk, fontWeight: 700 }}>{r.label} {Math.round(r.metric)}{r.unit}</span>
+                            {r.maxWeight ? ` · max ${r.maxWeight}kg` : ""}
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ color: C.chalk, fontWeight: 700 }}>{r.metric} série{r.metric > 1 ? "s" : ""}</span>
+                            {r.top.length ? " · " + r.top.map(([name, n]) => `${name} ×${n}`).join(", ") : ""}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
             <div style={{ marginTop: 18 }}>
               {rows.slice().reverse().map((r, i) => (
-                <div key={i} style={S.histRow}>
+                <button
+                  key={i}
+                  onClick={() => toggleZoom(r.key)}
+                  style={{ ...S.histRow, width: "100%", background: "none", border: "none", borderTop: `1px solid ${C.line}`, cursor: "pointer", textAlign: "left", ...(zoomKey === r.key ? { background: C.panelHi } : {}) }}
+                >
                   <div style={{ color: C.chalk, fontSize: 14 }}>
                     {bucketLabel(r.key, period)}
                   </div>
@@ -1702,7 +1757,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog })
                       </>
                     )}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </>
