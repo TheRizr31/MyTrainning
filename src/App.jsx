@@ -167,6 +167,7 @@ export default function App() {
   const [mode, setMode] = useState("reps"); // "reps" | "time"
   const [secs, setSecs] = useState(30);      // duration per set when mode === "time"
   const [weight, setWeight] = useState(20); // charge (kg), utilisée quand type === "charges"
+  const [audioDebug, setAudioDebug] = useState(""); // diagnostic affiché sous "Tester le son"
 
   // Guided session runtime: the workout being executed, if any.
   const [run, setRun] = useState(null); // { name, steps:[...], idx }
@@ -647,9 +648,29 @@ export default function App() {
               ) : (
                 <>
                   <div style={{ marginTop: 6 }}>{stepper(restLen, setRestLen, 10, 300, 10, "s de repos")}</div>
-                  <button onClick={() => { ensureAudio(); burst(); }} style={{ ...S.ghost, marginTop: 14 }}>
+                  <button
+                    onClick={() => {
+                      try {
+                        const ctx = ensureAudio();
+                        burst();
+                        setAudioDebug(
+                          `AudioContext: ${ctx ? ctx.state : "indisponible"}` +
+                          (typeof navigator !== "undefined" ? ` · vibrate: ${navigator.vibrate ? "oui" : "non"}` : "")
+                        );
+                        if (ctx) {
+                          setTimeout(() => setAudioDebug((m) => m + ` → après 300ms: ${ctx.state}`), 300);
+                        }
+                      } catch (e) {
+                        setAudioDebug("Erreur: " + (e && e.message ? e.message : String(e)));
+                      }
+                    }}
+                    style={{ ...S.ghost, marginTop: 14 }}
+                  >
                     Tester le son
                   </button>
+                  {audioDebug && (
+                    <div style={{ color: C.muted, fontSize: 12, marginTop: 10 }}>{audioDebug}</div>
+                  )}
                 </>
               )}
             </div>
