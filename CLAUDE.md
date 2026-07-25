@@ -27,8 +27,16 @@ Fonctionnalités déjà implémentées (toutes dans `src/App.jsx`) :
   déclenche les repos automatiquement, et enregistre chaque série dans
   l'historique du jour. Boutons « Passer la série » et « Bloc suivant ».
 - **Historique** : récap par jour, distinguant total reps et total temps.
+- **Onglet Progrès** : pour un exercice choisi (même sélecteur type → groupe
+  → exercice), graphique en barres + tableau brut par séance. Métrique
+  affichée : volume (reps × poids) si des séries pèsent quelque chose, sinon
+  temps total ou reps totales selon le mode dominant.
 - **Persistance** : la séance guidée en cours survit à un changement d'onglet
   et à un rechargement (restaurée au démarrage).
+- **Backend optionnel (Cloudflare)** : `worker/` contient une API D1 minimale
+  reproduisant l'interface storage. Activée via `VITE_API_URL`/`VITE_API_TOKEN`
+  (voir `.env.example`) ; sinon repli sur `localStorage`. Déployée séparément
+  du reste du compte Cloudflare de l'utilisateur (DB `suivi-muscu` dédiée).
 
 ---
 
@@ -85,19 +93,27 @@ Trois familles de clés :
   reps: number,          // nombre de reps OU nombre de secondes si mode "time"
   mode: "reps" | "time", // comment lire `reps`
   rest: number,          // repos (s) qui suivait cette série (indicatif)
-  at: string             // ISO datetime
+  at: string,            // ISO datetime
+  type: "charges" | "poids",  // optionnel — absent sur les séries créées avant cet ajout
+  weight: number         // optionnel — charge (kg), uniquement si type === "charges"
 }
 ```
+`type` sert à désambiguïser les exercices présents dans les deux catalogues
+(ex. « Squat », « Fentes »). `weight` alimente l'onglet Progrès (volume =
+reps × weight). Les anciennes séries sans ces champs restent lisibles ; le
+code ne doit pas supposer leur présence.
 
 ### Block (un bloc d'un entraînement) — forme actuelle
 ```
 {
-  exercises: [ { exercise, reps, mode } ],  // 1 exo = normal, 2+ = superset
+  exercises: [ { exercise, reps, mode, type, weight } ],  // 1 exo = normal, 2+ = superset
   rounds: number,        // nombre de tours
   restBetween: number,   // repos (s) entre exos d'un même tour (0 = enchaîner)
   restAfter: number      // repos (s) après chaque tour
 }
 ```
+`type`/`weight` par exercice du bloc sont optionnels (mêmes règles que Set),
+propagés jusqu'aux `steps` de la séance guidée puis dans le Set loggué.
 **Compat ascendante** : d'anciens blocs peuvent avoir la forme
 `{ exercise, series, reps, mode, rest }`. Le code lit les deux (`b.exercises ||
 [...]`, `b.rounds || b.series`, `b.restAfter ?? b.rest`). Conserve cette

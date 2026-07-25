@@ -165,6 +165,7 @@ export default function App() {
   const [reps, setReps] = useState(15);
   const [mode, setMode] = useState("reps"); // "reps" | "time"
   const [secs, setSecs] = useState(30);      // duration per set when mode === "time"
+  const [weight, setWeight] = useState(20); // charge (kg), utilisée quand type === "charges"
 
   // Guided session runtime: the workout being executed, if any.
   const [run, setRun] = useState(null); // { name, steps:[...], idx }
@@ -278,10 +279,13 @@ export default function App() {
 
   // Log a set with explicit values to a given day.
   // val = reps count OR seconds, depending on m ("reps" | "time").
-  const logSet = (key, ex, val, rst, m = "reps") => {
+  const logSet = (key, ex, val, rst, m = "reps", ty, wt) => {
     setHistory((h) => {
       const cur = h[key] || { sets: [] };
-      const set = { exercise: ex, reps: val, mode: m, rest: rst, at: new Date().toISOString() };
+      const set = {
+        exercise: ex, reps: val, mode: m, rest: rst, at: new Date().toISOString(),
+        ...(ty ? { type: ty } : {}), ...(wt > 0 ? { weight: wt } : {}),
+      };
       const next = { sets: [...cur.sets, set] };
       window.storage.set("day:" + key, JSON.stringify(next)).catch(() => {});
       return { ...h, [key]: next };
@@ -290,7 +294,10 @@ export default function App() {
 
   const addSetTo = (key, existing) => {
     const val = mode === "time" ? secs : reps;
-    const set = { exercise, reps: val, mode, rest: restLen, at: new Date().toISOString() };
+    const set = {
+      exercise, reps: val, mode, rest: restLen, at: new Date().toISOString(), type,
+      ...(type === "charges" && weight > 0 ? { weight } : {}),
+    };
     saveDay(key, { sets: [...existing.sets, set] });
     return set;
   };
@@ -335,6 +342,8 @@ export default function App() {
             exercise: ex.exercise,
             reps: ex.reps,
             mode: ex.mode || "reps",
+            type: ex.type,
+            weight: ex.weight,
             rest: restAfterThis,
             round: r + 1,
             rounds,
@@ -368,7 +377,7 @@ export default function App() {
     stopAlarm();
     setRinging(false);
     const step = run.steps[run.idx];
-    logSet(tk, step.exercise, step.reps, step.rest, step.mode || "reps");
+    logSet(tk, step.exercise, step.reps, step.rest, step.mode || "reps", step.type, step.weight);
     const last = run.idx >= run.steps.length - 1;
     if (last) {
       setRunP(null);
@@ -537,6 +546,14 @@ export default function App() {
             )}
             </div>
           </div>
+
+          {/* Charge — uniquement pour les exercices "avec charges" */}
+          {type === "charges" && (
+            <div style={S.pickSection}>
+              <div style={S.stepHead}><span style={S.stepDot}>+</span> Charge</div>
+              {stepper(weight, setWeight, 0, 300, 2.5, "kg")}
+            </div>
+          )}
         </>
       )}
     </>
@@ -552,7 +569,7 @@ export default function App() {
         </header>
 
         {!run && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
           <button onClick={() => setTab("today")} style={{ ...S.tab, ...(tab === "today" ? S.tabOn : {}) }}>
             Aujourd'hui
           </button>
@@ -561,6 +578,9 @@ export default function App() {
           </button>
           <button onClick={() => setTab("workout")} style={{ ...S.tab, ...(tab === "workout" ? S.tabOn : {}) }}>
             Entraînements
+          </button>
+          <button onClick={() => setTab("progress")} style={{ ...S.tab, ...(tab === "progress" ? S.tabOn : {}) }}>
+            Progrès
           </button>
         </div>
         )}
@@ -643,7 +663,7 @@ export default function App() {
                     onClick={() => {
                       // Run the effort countdown; when it ends, log the set then start rest.
                       startEffort(secs, () => {
-                        logSet(tk, exercise, secs, restLen, "time");
+                        logSet(tk, exercise, secs, restLen, "time", type, type === "charges" ? weight : undefined);
                       });
                     }}
                     style={{ ...S.validate, background: C.effort }}
@@ -679,8 +699,9 @@ export default function App() {
                           {new Date(s.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · repos {s.rest}s
                         </div>
                       </div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: s.mode === "time" ? C.effort : C.done }}>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: s.mode === "time" ? C.effort : C.done, textAlign: "right" }}>
                         {fmtVal(s.reps, s.mode)}
+                        {s.weight ? <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>@{s.weight}kg</div> : null}
                       </div>
                     </div>
                   ))}
@@ -697,6 +718,8 @@ export default function App() {
           <CatchUp
             exerciseChips={exerciseChips}
             exercise={exercise}
+            type={type}
+            weight={weight}
             reps={reps}
             setReps={setReps}
             secs={secs}
@@ -720,6 +743,10 @@ export default function App() {
           />
         )}
 
+        {!run && tab === "progress" && (
+          <ProgressTab history={history} stepper={stepper} />
+        )}
+
         {run && (
           <div>
             {(() => {
@@ -738,7 +765,7 @@ export default function App() {
                       {step.rounds > 1 && `Tour ${step.round}/${step.rounds}`}
                       {step.isSuper && `${step.rounds > 1 ? " · " : ""}exo ${step.exoNo}/${step.exoCount}`}
                       {(step.rounds > 1 || step.isSuper) && " · "}
-                      objectif {fmtVal(step.reps, step.mode)}{step.mode === "time" ? "" : " reps"}
+                      objectif {fmtVal(step.reps, step.mode)}{step.mode === "time" ? "" : " reps"}{step.weight ? ` @${step.weight}kg` : ""}
                       {step.rest > 0 ? ` · repos ${step.rest}s` : (step.isSuper && step.exoNo < step.exoCount ? " · enchaîner" : "")}
                     </div>
 
@@ -812,7 +839,7 @@ export default function App() {
                             {s.rounds > 1 && <span style={{ color: C.muted, fontWeight: 500 }}> · T{s.round}</span>}
                           </div>
                           <div style={{ color: C.muted, fontSize: 12 }}>
-                            {fmtVal(s.reps, s.mode)}{s.mode === "time" ? "" : " reps"}{s.rest > 0 ? ` · repos ${s.rest}s` : ""}
+                            {fmtVal(s.reps, s.mode)}{s.mode === "time" ? "" : " reps"}{s.weight ? ` @${s.weight}kg` : ""}{s.rest > 0 ? ` · repos ${s.rest}s` : ""}
                           </div>
                         </div>
                       </div>
@@ -861,7 +888,7 @@ export default function App() {
 }
 
 // ── Catch-up tab: log a session on any past date ─────────────
-function CatchUp({ exerciseChips, exercise, reps, setReps, secs, setSecs, mode, setMode, stepper, history, saveDay, todayKey }) {
+function CatchUp({ exerciseChips, exercise, type, weight, reps, setReps, secs, setSecs, mode, setMode, stepper, history, saveDay, todayKey }) {
   const [date, setDate] = useState(todayKey);
   const [series, setSeries] = useState(3);
   const [msg, setMsg] = useState("");
@@ -871,7 +898,10 @@ function CatchUp({ exerciseChips, exercise, reps, setReps, secs, setSecs, mode, 
 
   const addBatch = () => {
     const now = new Date().toISOString();
-    const newSets = Array.from({ length: series }, () => ({ exercise, reps: val, mode, rest: 0, at: now }));
+    const newSets = Array.from({ length: series }, () => ({
+      exercise, reps: val, mode, rest: 0, at: now, type,
+      ...(type === "charges" && weight > 0 ? { weight } : {}),
+    }));
     saveDay(date, { sets: [...existing.sets, ...newSets] });
     setMsg(`${series} série(s) de ${fmtVal(val, mode)} ajoutée(s).`);
     setTimeout(() => setMsg(""), 2500);
@@ -952,6 +982,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
   const [bMode, setBMode] = useState("reps");
   const [bReps, setBReps] = useState(10);
   const [bSecs, setBSecs] = useState(30);
+  const [bWeight, setBWeight] = useState(20);
 
   // Current block draft (list of exercises = superset when length > 1).
   const [draft, setDraft] = useState([]); // [{exercise, reps, mode}]
@@ -962,7 +993,13 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
   const bItems = itemsFor(bType, bGroup);
 
   const addExoToDraft = () => {
-    setDraft((d) => [...d, { exercise: bEx, reps: bMode === "time" ? bSecs : bReps, mode: bMode }]);
+    setDraft((d) => [
+      ...d,
+      {
+        exercise: bEx, reps: bMode === "time" ? bSecs : bReps, mode: bMode, type: bType,
+        ...(bType === "charges" && bWeight > 0 ? { weight: bWeight } : {}),
+      },
+    ]);
   };
   const removeExoFromDraft = (i) => setDraft((d) => d.filter((_, j) => j !== i));
 
@@ -1014,7 +1051,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
   const blockSummary = (b) => {
     const exos = b.exercises || [{ exercise: b.exercise, reps: b.reps, mode: b.mode }];
     const rds = b.rounds || b.series || 1;
-    const exoStr = exos.map((e) => `${fmtVal(e.reps, e.mode)}${e.mode === "time" ? "" : "×"} ${e.exercise}`).join(" + ");
+    const exoStr = exos.map((e) => `${fmtVal(e.reps, e.mode)}${e.mode === "time" ? "" : "×"} ${e.exercise}${e.weight ? ` @${e.weight}kg` : ""}`).join(" + ");
     return `${rds} tour${rds > 1 ? "s" : ""} · ${exoStr}`;
   };
 
@@ -1156,6 +1193,10 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
             <div style={{ marginBottom: 12 }}>{stepper(bSecs, setBSecs, 5, 600, 5, "s")}</div>
           )}
 
+          {bType === "charges" && (
+            <div style={{ marginBottom: 12 }}>{stepper(bWeight, setBWeight, 0, 300, 2.5, "kg")}</div>
+          )}
+
           <button onClick={addExoToDraft} style={{ ...S.ghost, width: "100%", padding: "12px", borderColor: C.lime, color: C.lime }}>
             + Ajouter {bEx} au bloc
           </button>
@@ -1193,6 +1234,163 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
             <button onClick={reset} style={S.ghost}>Annuler</button>
           )}
         </div>
+      </div>
+    </>
+  );
+}
+
+// ── Progress tab: chart + raw data per exercise ───────────────
+function ProgressTab({ history }) {
+  const [type, setType] = useState("poids");
+  const [group, setGroup] = useState(GROUPS[0]);
+  const [exercise, setExercise] = useState(itemsFor("poids", GROUPS[0])[0]);
+  const [search, setSearch] = useState("");
+
+  const groupItems = itemsFor(type, group);
+  const q = search.trim().toLowerCase();
+  const searchHits = q ? ALL_EXOS.filter((x) => x.name.toLowerCase().includes(q)) : null;
+  const typeLabel = (t) => (TYPES.find((x) => x.key === t) || {}).label;
+
+  // One row per day that has data for the selected exercise, oldest first.
+  const dates = Object.keys(history).sort();
+  const rows = [];
+  dates.forEach((d) => {
+    const sets = (history[d].sets || []).filter((s) => s.exercise === exercise);
+    if (!sets.length) return;
+    const hasWeight = sets.some((s) => s.weight > 0);
+    const isTime = sets.every((s) => s.mode === "time");
+    let metric, label, unit;
+    if (hasWeight) {
+      metric = sets.reduce((a, s) => a + s.reps * (s.weight || 0), 0);
+      label = "Volume";
+      unit = "kg";
+    } else if (isTime) {
+      metric = sets.reduce((a, s) => a + s.reps, 0);
+      label = "Temps total";
+      unit = "s";
+    } else {
+      metric = sets.reduce((a, s) => a + s.reps, 0);
+      label = "Reps totales";
+      unit = "";
+    }
+    const maxWeight = hasWeight ? Math.max(...sets.map((s) => s.weight || 0)) : null;
+    rows.push({ date: d, sets, metric, label, unit, maxWeight });
+  });
+
+  const maxMetric = Math.max(1, ...rows.map((r) => r.metric));
+  const shortDate = (k) => new Date(k + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+
+  return (
+    <>
+      <div style={S.card}>
+        <div style={S.label}>Exercice à suivre</div>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="🔍  Rechercher un exercice…"
+          style={S.searchInput}
+        />
+        {searchHits ? (
+          <div style={{ margin: "16px 0 6px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {searchHits.length === 0 ? (
+                <div style={{ color: C.muted, fontSize: 14 }}>Aucun exercice trouvé.</div>
+              ) : (
+                searchHits.map((x, i) => (
+                  <button
+                    key={x.name + i}
+                    onClick={() => { setType(x.type); setGroup(x.group); setExercise(x.name); setSearch(""); }}
+                    style={{ ...S.searchHit, ...(exercise === x.name ? S.chipOn : {}) }}
+                  >
+                    <span>{x.name}</span>
+                    <span style={{ fontSize: 11, opacity: 0.7 }}>{typeLabel(x.type)} · {x.group}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{ ...S.pickSection, marginTop: 16 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              {TYPES.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => { setType(t.key); const it = itemsFor(t.key, group); if (it.length && !it.includes(exercise)) setExercise(it[0]); }}
+                  style={{ ...S.typeChip, ...(type === t.key ? S.typeChipOn : {}) }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+              {GROUPS.map((g) => {
+                const empty = itemsFor(type, g).length === 0;
+                return (
+                  <button
+                    key={g}
+                    disabled={empty}
+                    onClick={() => { setGroup(g); const it = itemsFor(type, g); if (it.length && !it.includes(exercise)) setExercise(it[0]); }}
+                    style={{ ...S.catChip, ...(group === g ? S.catChipOn : {}), ...(empty ? S.catChipOff : {}) }}
+                  >
+                    {g}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {groupItems.length === 0 ? (
+                <div style={{ color: C.muted, fontSize: 14 }}>Aucun exercice pour ce groupe.</div>
+              ) : (
+                groupItems.map((e) => (
+                  <button key={e} onClick={() => setExercise(e)} style={{ ...S.chip, ...(exercise === e ? S.chipOn : {}) }}>
+                    {e}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
+          <div style={S.label}>{exercise}</div>
+          <div style={{ fontSize: 13, color: C.muted }}>{rows.length} séance{rows.length > 1 ? "s" : ""}</div>
+        </div>
+
+        {rows.length === 0 ? (
+          <div style={{ color: C.muted, fontSize: 14, padding: "8px 0" }}>
+            Aucune donnée pour cet exercice pour l'instant.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 150, overflowX: "auto", padding: "8px 2px 4px" }}>
+              {rows.map((r, i) => (
+                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 30 }}>
+                  <div style={{ fontSize: 10, color: C.muted, marginBottom: 4, whiteSpace: "nowrap" }}>
+                    {Math.round(r.metric)}{r.unit}
+                  </div>
+                  <div style={{ width: 22, height: Math.max(4, (r.metric / maxMetric) * 100), background: C.lime, borderRadius: 5 }} />
+                  <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>{shortDate(r.date)}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 18 }}>
+              {rows.slice().reverse().map((r, i) => (
+                <div key={i} style={S.histRow}>
+                  <div style={{ textTransform: "capitalize", color: C.chalk, fontSize: 14 }}>
+                    {fmtDate(r.date)}
+                  </div>
+                  <div style={{ color: C.muted, fontSize: 13, textAlign: "right" }}>
+                    {r.sets.length} série{r.sets.length > 1 ? "s" : ""} · <span style={{ color: C.chalk, fontWeight: 700 }}>{r.label} {Math.round(r.metric)}{r.unit}</span>
+                    {r.maxWeight ? ` · max ${r.maxWeight}kg` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </>
   );
