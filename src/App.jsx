@@ -180,6 +180,45 @@ export default function App() {
   const tickRef = useRef(null);
   const beepedRef = useRef(false);
   const onEffortDone = useRef(null); // callback fired when an effort countdown ends
+  const wakeLockRef = useRef(null);
+
+  // Empêche l'écran de se verrouiller tout seul pendant qu'un chrono tourne
+  // (repos ou effort) — sinon iOS suspend le JS avant que l'alarme sonne,
+  // typiquement pendant un repos de 60-90s où on ne touche pas l'écran.
+  const timerActive = rest > 0 || ringing;
+  const timerActiveRef = useRef(timerActive);
+  useEffect(() => { timerActiveRef.current = timerActive; }, [timerActive]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (timerActive) {
+      (async () => {
+        try {
+          if ("wakeLock" in navigator) {
+            const sentinel = await navigator.wakeLock.request("screen");
+            if (cancelled) sentinel.release().catch(() => {});
+            else wakeLockRef.current = sentinel;
+          }
+        } catch {}
+      })();
+    } else {
+      try { wakeLockRef.current?.release(); } catch {}
+      wakeLockRef.current = null;
+    }
+    return () => { cancelled = true; };
+  }, [timerActive]);
+
+  // Le wake lock est automatiquement relâché par le navigateur quand l'onglet
+  // passe en arrière-plan ; on le redemande au retour si un chrono tourne encore.
+  useEffect(() => {
+    const onVisible = async () => {
+      if (document.visibilityState === "visible" && timerActiveRef.current && "wakeLock" in navigator) {
+        try { wakeLockRef.current = await navigator.wakeLock.request("screen"); } catch {}
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -234,7 +273,11 @@ export default function App() {
       } catch {}
       setLoading(false);
     })();
-    return () => { clearInterval(tickRef.current); stopAlarm(); };
+    return () => {
+      clearInterval(tickRef.current);
+      stopAlarm();
+      try { wakeLockRef.current?.release(); } catch {}
+    };
   }, []);
 
   const saveWorkout = async (wk) => {

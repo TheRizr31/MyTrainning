@@ -175,10 +175,19 @@ promettre une fonctionnalité :
 3. **Arrière-plan** : si l'app est fermée ou l'onglet totalement suspendu, le
    JS ne tourne plus → l'alarme ne peut pas sonner « toute seule » plus tard.
    Le chrono, lui, se recale correctement au retour (heure de fin absolue).
+   **Mitigation en place** : Screen Wake Lock API (voir `App.jsx`, effets
+   autour de `wakeLockRef`/`timerActive`) — empêche l'écran de se verrouiller
+   tout seul tant qu'un chrono (repos ou effort) tourne, ce qui couvre le cas
+   le plus fréquent (repos de 60-90s sans interaction pendant une séance
+   guidée). Ne couvre pas le cas où l'utilisateur change volontairement
+   d'app ou verrouille l'écran manuellement — le wake lock est alors relâché
+   par le navigateur et redemandé au retour sur l'onglet si un chrono est
+   toujours actif. Supporté sur Safari iOS depuis la 16.4 ; no-op silencieux
+   ailleurs (`"wakeLock" in navigator` + try/catch).
 4. **Alarme persistante** : l'alarme boucle jusqu'au bouton **Stop** (choix
    assumé, car on ne peut pas garantir un arrêt auto fiable en arrière-plan).
 
-Pour dépasser 1–3, il faut une **app native** (voir Roadmap).
+Pour dépasser complètement 1–3, il faut une **app native** (voir Roadmap).
 
 ---
 
