@@ -15,10 +15,25 @@ async function request(path, opts = {}) {
   });
 }
 
+// Une réponse non-ok (401, 500...) doit ÉCHOUER bruyamment — sinon un
+// mauvais token ou une panne du Worker passe totalement inaperçu : set()
+// paraît réussir, get() paraît juste "vide", et les données semblent
+// disparaître au prochain chargement sans qu'aucune erreur n'ait jamais été
+// visible nulle part.
+async function failIfNotOk(res, label) {
+  if (!res.ok) {
+    let detail = "";
+    try { detail = await res.text(); } catch {}
+    throw new Error(`${label} a échoué (HTTP ${res.status})${detail ? " — " + detail : ""}`);
+  }
+  return res;
+}
+
 export const cloudflareStorage = {
   async get(key) {
     const res = await request(`/kv/${encodeURIComponent(key)}`);
-    if (!res.ok) return null;
+    if (res.status === 404) return null;
+    await failIfNotOk(res, `Lecture de "${key}"`);
     return res.json();
   },
 
@@ -28,17 +43,19 @@ export const cloudflareStorage = {
       headers: { "Content-Type": "text/plain" },
       body: String(value),
     });
+    await failIfNotOk(res, `Sauvegarde de "${key}"`);
     return res.json();
   },
 
   async delete(key) {
     const res = await request(`/kv/${encodeURIComponent(key)}`, { method: "DELETE" });
+    await failIfNotOk(res, `Suppression de "${key}"`);
     return res.json();
   },
 
   async list(prefix = "") {
     const res = await request(`/kv?prefix=${encodeURIComponent(prefix)}`);
-    if (!res.ok) return { keys: [] };
+    await failIfNotOk(res, `Liste "${prefix}"`);
     return res.json();
   },
 };

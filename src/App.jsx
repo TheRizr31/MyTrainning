@@ -188,6 +188,7 @@ export default function App() {
   const [goals, setGoals] = useState({}); // { id: {id, exercise, metric, target, unit, deadline, createdAt} }
   const [catalog, setCatalog] = useState(buildDefaultCatalog); // { types, groups, exos } — persisté sous catalog:data
   const [loading, setLoading] = useState(true);
+  const [syncError, setSyncError] = useState(null); // dernière erreur de sauvegarde/chargement, visible à l'écran
   const [tab, setTab] = useState("today"); // today | catchup | workout
   const [type, setType] = useState("poids");
   const [group, setGroup] = useState(DEFAULT_GROUPS[0]);
@@ -251,6 +252,16 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
+  // Toute erreur de sauvegarde/chargement doit rester VISIBLE — avant, tout
+  // était avalé en silence (try/catch vides ou .catch(() => {})), donc une
+  // panne du backend Cloudflare (mauvais token, Worker en erreur...) ne se
+  // remarquait qu'au rechargement suivant, quand les données semblaient
+  // avoir disparu, sans aucun message expliquant pourquoi.
+  const reportError = (action, e) => {
+    console.error(action, e);
+    setSyncError(`${action} : ${e && e.message ? e.message : String(e)}`);
+  };
+
   useEffect(() => {
     (async () => {
       try {
@@ -258,40 +269,34 @@ export default function App() {
         if (res?.keys?.length) {
           const entries = {};
           for (const k of res.keys) {
-            try {
-              const r = await window.storage.get(k);
-              if (r) entries[k.replace("day:", "")] = JSON.parse(r.value);
-            } catch {}
+            const r = await window.storage.get(k);
+            if (r) entries[k.replace("day:", "")] = JSON.parse(r.value);
           }
           setHistory(entries);
         }
-      } catch {}
+      } catch (e) { reportError("Chargement de l'historique", e); }
       try {
         const wr = await window.storage.list("wk:");
         if (wr?.keys?.length) {
           const ws = {};
           for (const k of wr.keys) {
-            try {
-              const r = await window.storage.get(k);
-              if (r) ws[k.replace("wk:", "")] = JSON.parse(r.value);
-            } catch {}
+            const r = await window.storage.get(k);
+            if (r) ws[k.replace("wk:", "")] = JSON.parse(r.value);
           }
           setWorkouts(ws);
         }
-      } catch {}
+      } catch (e) { reportError("Chargement des entraînements", e); }
       try {
         const gr = await window.storage.list("goal:");
         if (gr?.keys?.length) {
           const gs = {};
           for (const k of gr.keys) {
-            try {
-              const r = await window.storage.get(k);
-              if (r) gs[k.replace("goal:", "")] = JSON.parse(r.value);
-            } catch {}
+            const r = await window.storage.get(k);
+            if (r) gs[k.replace("goal:", "")] = JSON.parse(r.value);
           }
           setGoals(gs);
         }
-      } catch {}
+      } catch (e) { reportError("Chargement des objectifs", e); }
       try {
         const cr = await window.storage.get("catalog:data");
         if (cr) {
@@ -301,9 +306,9 @@ export default function App() {
           // pour que les éditions suivantes partent d'une base stable.
           const def = buildDefaultCatalog();
           setCatalog(def);
-          window.storage.set("catalog:data", JSON.stringify(def)).catch(() => {});
+          window.storage.set("catalog:data", JSON.stringify(def)).catch((e) => reportError("Initialisation du catalogue", e));
         }
-      } catch {}
+      } catch (e) { reportError("Chargement du catalogue", e); }
       try {
         const rr = await window.storage.get("run:active");
         if (rr) {
@@ -313,7 +318,7 @@ export default function App() {
             setTab("workout");
           }
         }
-      } catch {}
+      } catch (e) { reportError("Chargement de la séance en cours", e); }
       setLoading(false);
     })();
     return () => {
@@ -325,32 +330,35 @@ export default function App() {
 
   const saveWorkout = async (wk) => {
     setWorkouts((w) => ({ ...w, [wk.id]: wk }));
-    try { await window.storage.set("wk:" + wk.id, JSON.stringify(wk)); } catch {}
+    try { await window.storage.set("wk:" + wk.id, JSON.stringify(wk)); } catch (e) { reportError("Sauvegarde de l'entraînement", e); }
   };
   const deleteWorkout = async (id) => {
     setWorkouts((w) => { const n = { ...w }; delete n[id]; return n; });
-    try { await window.storage.delete("wk:" + id); } catch {}
+    try { await window.storage.delete("wk:" + id); } catch (e) { reportError("Suppression de l'entraînement", e); }
   };
 
   const saveGoal = async (g) => {
     setGoals((gs) => ({ ...gs, [g.id]: g }));
-    try { await window.storage.set("goal:" + g.id, JSON.stringify(g)); } catch {}
+    try { await window.storage.set("goal:" + g.id, JSON.stringify(g)); } catch (e) { reportError("Sauvegarde de l'objectif", e); }
   };
   const deleteGoal = async (id) => {
     setGoals((gs) => { const n = { ...gs }; delete n[id]; return n; });
-    try { await window.storage.delete("goal:" + id); } catch {}
+    try { await window.storage.delete("goal:" + id); } catch (e) { reportError("Suppression de l'objectif", e); }
   };
 
   const saveCatalog = (next) => {
     setCatalog(next);
-    try { window.storage.set("catalog:data", JSON.stringify(next)); } catch {}
+    // `next` capturé par la closure ; JSON.stringify avant l'await pour être
+    // sûr d'envoyer exactement ce qui vient d'être affiché, pas un state
+    // React qui aurait pu changer entre-temps.
+    window.storage.set("catalog:data", JSON.stringify(next)).catch((e) => reportError("Sauvegarde du catalogue", e));
   };
 
   const saveDay = async (key, session) => {
     setHistory((h) => ({ ...h, [key]: session }));
     try {
       await window.storage.set("day:" + key, JSON.stringify(session));
-    } catch {}
+    } catch (e) { reportError("Sauvegarde de la séance", e); }
   };
 
   const tk = todayKey();
@@ -401,7 +409,7 @@ export default function App() {
         ...(ty ? { type: ty } : {}), ...(wt > 0 ? { weight: wt } : {}),
       };
       const next = { sets: [...cur.sets, set] };
-      window.storage.set("day:" + key, JSON.stringify(next)).catch(() => {});
+      window.storage.set("day:" + key, JSON.stringify(next)).catch((e) => reportError("Sauvegarde de la série", e));
       return { ...h, [key]: next };
     });
   };
@@ -425,10 +433,8 @@ export default function App() {
 
   // ── Guided session ──────────────────────────────────────────
   const persistRun = (r) => {
-    try {
-      if (r) window.storage.set("run:active", JSON.stringify(r));
-      else window.storage.delete("run:active");
-    } catch {}
+    const p = r ? window.storage.set("run:active", JSON.stringify(r)) : window.storage.delete("run:active");
+    p.catch((e) => reportError("Sauvegarde de la séance en cours", e));
   };
   const setRunP = (r) => { setRun(r); persistRun(r); };
 
@@ -676,6 +682,13 @@ export default function App() {
   return (
     <div style={S.page}>
       <div style={S.wrap}>
+        {syncError && (
+          <div style={S.errorBanner}>
+            <span>⚠️ {syncError}</span>
+            <button onClick={() => setSyncError(null)} style={S.errorBannerClose}>×</button>
+          </div>
+        )}
+
         <header style={{ marginBottom: 22 }}>
           <div style={S.eyebrow}>Séance du soir</div>
           <h1 style={S.h1}>Suivi pompes</h1>
@@ -2057,6 +2070,15 @@ const S = {
     display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700,
   },
   histRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderTop: `1px solid ${C.line}` },
+  errorBanner: {
+    display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10,
+    background: "#3a1414", border: `1px solid ${C.ring}`, color: C.chalk,
+    padding: "10px 14px", borderRadius: 12, marginBottom: 16, fontSize: 13, lineHeight: 1.4,
+  },
+  errorBannerClose: {
+    background: "transparent", border: "none", color: C.chalk, cursor: "pointer",
+    fontWeight: 800, fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0,
+  },
   statGrid: { display: "flex", flexWrap: "wrap", gap: 10 },
   statTile: {
     flex: "1 1 105px", minWidth: 105, background: C.panelHi, border: `1px solid ${C.line}`,
