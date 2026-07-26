@@ -1030,8 +1030,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Historique — masqué seulement sur l'écran de séance en cours elle-même */}
-        {!(tab === "workout" && run) && pastKeys.length > 0 && (
+        {/* Historique — visible uniquement sur Rattrapage et Progrès */}
+        {(tab === "catchup" || tab === "progress") && pastKeys.length > 0 && (
           <div style={S.card}>
             <div style={{ ...S.label, marginBottom: 14 }}>Historique</div>
             {pastKeys.map((k) => {
@@ -1217,6 +1217,7 @@ function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps
             <SetRow
               key={i}
               set={s}
+              numbered={i + 1}
               stepper={stepper}
               onSave={(patch) => saveDay(date, { sets: existing.sets.map((x, j) => (j === i ? { ...x, ...patch } : x)) })}
               onDelete={() => saveDay(date, { sets: existing.sets.filter((_, j) => j !== i) })}
