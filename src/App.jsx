@@ -182,6 +182,62 @@ function stopAlarm() {
   if (alarmTimer) { clearInterval(alarmTimer); alarmTimer = null; }
 }
 
+// ── Barre d'onglets du bas — icônes SVG dessinées à la main (pas
+// d'emoji, pas de lib d'icônes) pour rester dans l'esprit "chalk & iron".
+const TABS = [
+  { key: "today", label: "Aujourd'hui" },
+  { key: "catchup", label: "Rattrapage" },
+  { key: "workout", label: "Entraînements" },
+  { key: "progress", label: "Progrès" },
+  { key: "catalog", label: "Catalogue" },
+];
+
+function TabIcon({ name, color }) {
+  const common = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  if (name === "today") {
+    return (
+      <svg {...common}>
+        <polygon points="13 2 3 14 11 14 10 22 21 10 13 10 13 2" fill={color} stroke="none" />
+      </svg>
+    );
+  }
+  if (name === "catchup") {
+    return (
+      <svg {...common}>
+        <path d="M3 12a9 9 0 1 0 3-6.7" />
+        <polyline points="3 4 3 9 8 9" />
+        <polyline points="12 8 12 12 15 14" />
+      </svg>
+    );
+  }
+  if (name === "workout") {
+    return (
+      <svg width="22" height="22" viewBox="0 0 24 24">
+        <rect x="1" y="9" width="3" height="6" rx="1" fill={color} />
+        <rect x="20" y="9" width="3" height="6" rx="1" fill={color} />
+        <rect x="5" y="7" width="2.4" height="10" rx="1" fill={color} />
+        <rect x="16.6" y="7" width="2.4" height="10" rx="1" fill={color} />
+        <line x1="7.4" y1="12" x2="16.6" y2="12" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (name === "progress") {
+    return (
+      <svg {...common}>
+        <polyline points="3 17 9 11 13 15 21 6" />
+        <polyline points="15 6 21 6 21 12" />
+      </svg>
+    );
+  }
+  // catalog
+  return (
+    <svg {...common}>
+      <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5A2.5 2.5 0 0 0 4 22V4.5Z" />
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+    </svg>
+  );
+}
+
 export default function App() {
   const [history, setHistory] = useState({}); // { dateKey: session }
   const [workouts, setWorkouts] = useState({}); // { id: {name, blocks} }
@@ -695,27 +751,22 @@ export default function App() {
           <div style={{ color: C.muted, fontSize: 14, marginTop: 2, textTransform: "capitalize" }}>{fmtDate(tk)}</div>
         </header>
 
-        {!run && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-          <button onClick={() => setTab("today")} style={{ ...S.tab, ...(tab === "today" ? S.tabOn : {}) }}>
-            Aujourd'hui
+        {run && tab !== "workout" && (
+          <button onClick={() => setTab("workout")} style={S.resumeBanner}>
+            <span>🏋️ Séance en cours · {run.name}</span>
+            <span style={{ fontWeight: 800 }}>Reprendre →</span>
           </button>
-          <button onClick={() => setTab("catchup")} style={{ ...S.tab, ...(tab === "catchup" ? S.tabOn : {}) }}>
-            Rattrapage
-          </button>
-          <button onClick={() => setTab("workout")} style={{ ...S.tab, ...(tab === "workout" ? S.tabOn : {}) }}>
-            Entraînements
-          </button>
-          <button onClick={() => setTab("progress")} style={{ ...S.tab, ...(tab === "progress" ? S.tabOn : {}) }}>
-            Progrès
-          </button>
-          <button onClick={() => setTab("catalog")} style={{ ...S.tab, ...(tab === "catalog" ? S.tabOn : {}) }}>
-            Catalogue
-          </button>
-        </div>
         )}
 
-        {!run && tab === "today" && (
+        {tab === "today" && run && (
+          <div style={S.card}>
+            <div style={{ color: C.muted, fontSize: 14 }}>
+              Le chrono est occupé par ta séance en cours. Reprends-la ou quitte-la pour logguer une série libre ici.
+            </div>
+          </div>
+        )}
+
+        {tab === "today" && !run && (
           <>
             {/* Timer — rest between sets, or effort countdown for timed sets */}
             <div style={{ ...S.card, ...(rest > 0 || ringing ? S.cardLive : {}), ...(ringing ? S.cardRing : {}), ...(phase === "effort" && rest > 0 ? S.cardEffort : {}), textAlign: "center", padding: "26px 20px" }}>
@@ -844,7 +895,7 @@ export default function App() {
           </>
         )}
 
-        {!run && tab === "catchup" && (
+        {tab === "catchup" && (
           <CatchUp
             exerciseChips={exerciseChips}
             exercise={exercise}
@@ -864,7 +915,7 @@ export default function App() {
           />
         )}
 
-        {!run && tab === "workout" && (
+        {tab === "workout" && !run && (
           <WorkoutTab
             workouts={workouts}
             saveWorkout={saveWorkout}
@@ -875,15 +926,15 @@ export default function App() {
           />
         )}
 
-        {!run && tab === "progress" && (
+        {tab === "progress" && (
           <ProgressTab history={history} goals={goals} saveGoal={saveGoal} deleteGoal={deleteGoal} stepper={stepper} catalog={catalog} />
         )}
 
-        {!run && tab === "catalog" && (
+        {tab === "catalog" && (
           <CatalogTab catalog={catalog} saveCatalog={saveCatalog} />
         )}
 
-        {run && (
+        {tab === "workout" && run && (
           <div>
             {(() => {
               const step = run.steps[run.idx];
@@ -990,8 +1041,8 @@ export default function App() {
           </div>
         )}
 
-        {/* History (always visible) */}
-        {!run && pastKeys.length > 0 && (
+        {/* Historique — masqué seulement sur l'écran de séance en cours elle-même */}
+        {!(tab === "workout" && run) && pastKeys.length > 0 && (
           <div style={S.card}>
             <div style={{ ...S.label, marginBottom: 14 }}>Historique</div>
             {pastKeys.map((k) => {
@@ -1019,6 +1070,19 @@ export default function App() {
           {loading ? "Chargement…" : "Données sauvegardées automatiquement."}
         </div>
       </div>
+
+      <nav style={S.bottomBar}>
+        {TABS.map((t) => {
+          const active = tab === t.key;
+          const color = active ? C.lime : C.muted;
+          return (
+            <button key={t.key} onClick={() => setTab(t.key)} style={S.bottomBarBtn}>
+              <TabIcon name={t.key} color={color} />
+              <span style={{ ...S.bottomBarLabel, color, fontWeight: active ? 800 : 600 }}>{t.label}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }
@@ -1370,6 +1434,15 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
             <button onClick={reset} style={S.ghost}>Annuler</button>
           )}
         </div>
+
+        {blocks.length > 0 && (
+          <button
+            onClick={() => { launchWorkout({ name: name.trim() || "Séance libre", blocks }); reset(); }}
+            style={{ ...S.ghost, width: "100%", marginTop: 10, borderColor: C.effort, color: C.effort }}
+          >
+            Faire la séance sans l'enregistrer
+          </button>
+        )}
       </div>
     </>
   );
@@ -2030,9 +2103,29 @@ const S = {
     background: `radial-gradient(1200px 600px at 50% -10%, #1b2230 0%, ${C.ground} 55%)`,
     color: C.chalk,
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
-    padding: "24px 16px 48px",
+    padding: "24px 16px calc(88px + env(safe-area-inset-bottom, 0px))",
   },
   wrap: { maxWidth: 440, margin: "0 auto" },
+  resumeBanner: {
+    display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center",
+    background: "#1b2214", border: `1px solid ${C.limeDim}`, color: C.lime,
+    padding: "12px 14px", borderRadius: 12, marginBottom: 16, fontSize: 13,
+    cursor: "pointer", textAlign: "left",
+  },
+  bottomBar: {
+    position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 20,
+    display: "flex", justifyContent: "space-around",
+    background: "rgba(26,31,39,.92)", backdropFilter: "blur(12px)",
+    borderTop: `1px solid ${C.line}`,
+    padding: "8px 4px calc(8px + env(safe-area-inset-bottom, 0px))",
+  },
+  bottomBarBtn: {
+    flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+    background: "none", border: "none", padding: "4px 2px", cursor: "pointer", minWidth: 0,
+  },
+  bottomBarLabel: {
+    fontSize: 9.5, letterSpacing: "-.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%",
+  },
   eyebrow: { fontSize: 12, letterSpacing: ".22em", textTransform: "uppercase", color: C.limeDim, fontWeight: 700 },
   h1: { fontSize: 38, fontWeight: 800, letterSpacing: "-.03em", margin: "2px 0 0", lineHeight: 1 },
   tab: {
