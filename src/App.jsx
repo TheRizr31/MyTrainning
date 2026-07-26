@@ -601,11 +601,6 @@ export default function App() {
     setTab("today");
   };
 
-  const removeLastToday = () => {
-    if (!today.sets.length) return;
-    saveDay(tk, { sets: today.sets.slice(0, -1) });
-  };
-
   const pastKeys = Object.keys(history)
     .filter((k) => history[k].sets.length)
     .sort()
@@ -871,23 +866,15 @@ export default function App() {
               ) : (
                 <div>
                   {today.sets.map((s, i) => (
-                    <div key={i} style={S.row}>
-                      <div style={S.rowNum}>{i + 1}</div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ color: C.chalk, fontSize: 14, fontWeight: 600 }}>{s.exercise}</div>
-                        <div style={{ color: C.muted, fontSize: 12 }}>
-                          {new Date(s.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · repos {s.rest}s
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: s.mode === "time" ? C.effort : C.done, textAlign: "right" }}>
-                        {fmtVal(s.reps, s.mode)}
-                        {s.weight ? <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>@{s.weight}kg</div> : null}
-                      </div>
-                    </div>
+                    <SetRow
+                      key={i}
+                      set={s}
+                      numbered={i + 1}
+                      stepper={stepper}
+                      onSave={(patch) => saveDay(tk, { sets: today.sets.map((x, j) => (j === i ? { ...x, ...patch } : x)) })}
+                      onDelete={() => saveDay(tk, { sets: today.sets.filter((_, j) => j !== i) })}
+                    />
                   ))}
-                  <button onClick={removeLastToday} style={{ ...S.ghost, marginTop: 12 }}>
-                    Annuler la dernière
-                  </button>
                 </div>
               )}
             </div>
@@ -1086,6 +1073,63 @@ export default function App() {
   );
 }
 
+// ── Une série déjà enregistrée : affichage normal, ou formulaire
+// d'édition inline (valeur, charge) au tap. Réutilisé par Aujourd'hui
+// et Rattrapage pour corriger/supprimer une série sans tout reprendre.
+function SetRow({ set, stepper, onSave, onDelete, numbered }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(set.reps);
+  const [wt, setWt] = useState(set.weight || 0);
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setVal(set.reps); setWt(set.weight || 0); setEditing(true); }}
+        style={{ ...S.row, width: "100%", background: "none", border: "none", borderTop: `1px solid ${C.line}`, cursor: "pointer", textAlign: "left" }}
+      >
+        {numbered != null && <div style={S.rowNum}>{numbered}</div>}
+        <div style={{ flex: 1 }}>
+          <div style={{ color: C.chalk, fontSize: 14, fontWeight: 600 }}>{set.exercise}</div>
+          <div style={{ color: C.muted, fontSize: 12 }}>
+            {new Date(set.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+            {set.rest ? ` · repos ${set.rest}s` : ""}
+          </div>
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: set.mode === "time" ? C.effort : C.done, textAlign: "right" }}>
+          {fmtVal(set.reps, set.mode)}
+          {set.weight ? <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>@{set.weight}kg</div> : null}
+        </div>
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ ...S.pickSection, marginTop: 10 }}>
+      <div style={{ color: C.chalk, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>{set.exercise}</div>
+      <div style={S.gridLabel}>{set.mode === "time" ? "Durée" : "Répétitions"}</div>
+      <div style={{ marginBottom: set.weight != null ? 14 : 18 }}>
+        {stepper(val, setVal, 0, set.mode === "time" ? 3600 : 500, set.mode === "time" ? 5 : 1, set.mode === "time" ? "s" : "reps")}
+      </div>
+      {set.weight != null && (
+        <>
+          <div style={S.gridLabel}>Charge</div>
+          <div style={{ marginBottom: 18 }}>{stepper(wt, setWt, 0, 300, 2.5, "kg")}</div>
+        </>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={() => { onSave({ reps: val, ...(set.weight != null ? { weight: wt } : {}) }); setEditing(false); }}
+          style={{ ...S.validate, flex: 1, marginTop: 0 }}
+        >
+          Enregistrer
+        </button>
+        <button onClick={() => setEditing(false)} style={S.ghost}>Annuler</button>
+        <button onClick={onDelete} style={{ ...S.ghost, borderColor: C.ring, color: C.ring }}>Supprimer</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Catch-up tab: log a session on any past date ─────────────
 function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps, secs, setSecs, mode, setMode, stepper, history, saveDay, todayKey }) {
   const [date, setDate] = useState(todayKey);
@@ -1157,7 +1201,16 @@ function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps
           <div style={{ fontSize: 13, color: C.muted, marginBottom: 8 }}>
             Déjà enregistré ce jour : {existing.sets.length} séries
           </div>
-          <button onClick={clearDay} style={S.ghost}>
+          {existing.sets.map((s, i) => (
+            <SetRow
+              key={i}
+              set={s}
+              stepper={stepper}
+              onSave={(patch) => saveDay(date, { sets: existing.sets.map((x, j) => (j === i ? { ...x, ...patch } : x)) })}
+              onDelete={() => saveDay(date, { sets: existing.sets.filter((_, j) => j !== i) })}
+            />
+          ))}
+          <button onClick={clearDay} style={{ ...S.ghost, marginTop: 12 }}>
             Vider cette journée
           </button>
         </div>

@@ -244,7 +244,7 @@ Court terme (pur front, faisable tout de suite) :
 - [ ] **Export / import** des données en JSON (sauvegarde manuelle).
 - [ ] **Graphiques** de progression par exercice (volume, 1RM estimé, temps
       total de gainage…). Une lib légère type `recharts` ou un canvas maison.
-- [ ] **Édition d'une série** déjà enregistrée dans l'historique.
+- [x] **Édition d'une série** déjà enregistrée (Aujourd'hui + Rattrapage, composant `SetRow`).
 - [ ] Réordonner les **exercices d'un superset** (comme les blocs).
 - [ ] Templates d'entraînements prédéfinis (Push/Pull/Legs, full-body…).
 
