@@ -18,8 +18,13 @@ Fonctionnalités déjà implémentées (toutes dans `src/App.jsx`) :
   en 4 étapes (Type → Groupe musculaire → Exercice → Mesure). Mesure = reps
   **ou** temps. Chrono de repos entre séries avec alarme sonore en boucle
   (bouton Stop). En mode temps, un compte à rebours d'effort qui sonne à la fin.
-- **Onglet Rattrapage** : ajouter en bloc plusieurs séries à une date passée
-  (exercice, reps/temps, nombre de séries), et vider une journée.
+- **Rattraper une séance** (modal, ouvert depuis un bouton dans Progrès —
+  usage exceptionnel, plus un onglet à part) : ajouter en bloc plusieurs
+  séries à une date passée (exercice, reps/temps, nombre de séries), et
+  vider une journée.
+- **Récap de séance** (modal) : cliquer un jour dans l'Historique de Progrès
+  ouvre un récap groupé par exercice (séries, reps/temps total, charge),
+  avec édition/suppression de chaque série (réutilise `SetRow`).
 - **Onglet Entraînements** : construire des séances réutilisables faites de
   **blocs**. Un bloc = un ou plusieurs exercices (superset), un nombre de
   tours, un repos entre exos et un repos après chaque tour. Réordonner les
@@ -51,8 +56,10 @@ Fonctionnalités déjà implémentées (toutes dans `src/App.jsx`) :
 - **Stack** : React 18 + Vite. Aucun framework d'état externe (uniquement
   `useState` / `useRef`). Aucune dépendance UI : tout le style est en objets
   inline JS regroupés dans la constante `S` en bas de `App.jsx`.
-- **Un seul gros composant** `App` dans `src/App.jsx` (~1300 lignes), avec deux
-  sous-composants définis dans le même fichier : `CatchUp` (rattrapage) et
+- **Un seul gros composant** `App` dans `src/App.jsx`, avec plusieurs
+  sous-composants définis dans le même fichier : `Modal` (feuille générique
+  qui remonte du bas), `CatchUp` (rattrapage, rendu dans un `Modal`),
+  `DayRecap` (récap groupé par exercice d'un jour, rendu dans un `Modal`) et
   `WorkoutTab` (constructeur d'entraînements).
 - **Audio** : Web Audio API. Un `AudioContext` partagé, débloqué lors d'un
   geste utilisateur (contrainte navigateur). Fonctions `ensureAudio()`,
@@ -244,7 +251,10 @@ Court terme (pur front, faisable tout de suite) :
 - [ ] **Export / import** des données en JSON (sauvegarde manuelle).
 - [ ] **Graphiques** de progression par exercice (volume, 1RM estimé, temps
       total de gainage…). Une lib légère type `recharts` ou un canvas maison.
-- [x] **Édition d'une série** déjà enregistrée (Aujourd'hui + Rattrapage, composant `SetRow`).
+- [x] **Édition d'une série** déjà enregistrée (Aujourd'hui + récap de séance, composant `SetRow`).
+- [x] **Rattrapage en modal** : plus d'onglet dédié, bouton « Rattraper une
+      séance » dans Progrès + récap de séance groupé par exercice au clic
+      sur un jour de l'Historique.
 - [ ] Réordonner les **exercices d'un superset** (comme les blocs).
 - [ ] Templates d'entraînements prédéfinis (Push/Pull/Legs, full-body…).
 

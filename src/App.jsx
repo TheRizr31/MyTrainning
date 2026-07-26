@@ -186,7 +186,6 @@ function stopAlarm() {
 // d'emoji, pas de lib d'icônes) pour rester dans l'esprit "chalk & iron".
 const TABS = [
   { key: "today", label: "Aujourd'hui" },
-  { key: "catchup", label: "Rattrapage" },
   { key: "workout", label: "Entraînements" },
   { key: "progress", label: "Progrès" },
   { key: "catalog", label: "Catalogue" },
@@ -245,8 +244,9 @@ export default function App() {
   const [catalog, setCatalog] = useState(buildDefaultCatalog); // { types, groups, exos } — persisté sous catalog:data
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState(null); // dernière erreur de sauvegarde/chargement, visible à l'écran
-  const [tab, setTab] = useState("today"); // today | catchup | workout
-  const [catchupDate, setCatchupDate] = useState(null); // date à ouvrir dans Rattrapage (ex: depuis Historique)
+  const [tab, setTab] = useState("today"); // today | workout | progress | catalog
+  const [catchupOpen, setCatchupOpen] = useState(false); // modal "Rattraper une séance"
+  const [recapDate, setRecapDate] = useState(null); // date affichée dans le modal récap (depuis Historique)
   const [type, setType] = useState("poids");
   const [group, setGroup] = useState(DEFAULT_GROUPS[0]);
   const [exercise, setExercise] = useState(defaultItemsFor("poids", DEFAULT_GROUPS[0])[0]);
@@ -882,28 +882,6 @@ export default function App() {
           </>
         )}
 
-        {tab === "catchup" && (
-          <CatchUp
-            exerciseChips={exerciseChips}
-            exercise={exercise}
-            type={type}
-            catalog={catalog}
-            weight={weight}
-            reps={reps}
-            setReps={setReps}
-            secs={secs}
-            setSecs={setSecs}
-            mode={mode}
-            setMode={setMode}
-            stepper={stepper}
-            history={history}
-            saveDay={saveDay}
-            todayKey={tk}
-            jumpDate={catchupDate}
-            onJumped={() => setCatchupDate(null)}
-          />
-        )}
-
         {tab === "workout" && !run && (
           <WorkoutTab
             workouts={workouts}
@@ -916,7 +894,15 @@ export default function App() {
         )}
 
         {tab === "progress" && (
-          <ProgressTab history={history} goals={goals} saveGoal={saveGoal} deleteGoal={deleteGoal} stepper={stepper} catalog={catalog} />
+          <ProgressTab
+            history={history}
+            goals={goals}
+            saveGoal={saveGoal}
+            deleteGoal={deleteGoal}
+            stepper={stepper}
+            catalog={catalog}
+            onOpenCatchup={() => setCatchupOpen(true)}
+          />
         )}
 
         {tab === "catalog" && (
@@ -1030,8 +1016,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Historique — visible uniquement sur Rattrapage et Progrès */}
-        {(tab === "catchup" || tab === "progress") && pastKeys.length > 0 && (
+        {/* Historique — visible uniquement sur Progrès ; ouvre le récap au clic */}
+        {tab === "progress" && pastKeys.length > 0 && (
           <div style={S.card}>
             <div style={{ ...S.label, marginBottom: 14 }}>Historique</div>
             {pastKeys.map((k) => {
@@ -1044,7 +1030,7 @@ export default function App() {
               return (
                 <button
                   key={k}
-                  onClick={() => { setCatchupDate(k); setTab("catchup"); }}
+                  onClick={() => setRecapDate(k)}
                   style={{ ...S.histRow, width: "100%", background: "none", border: "none", borderTop: `1px solid ${C.line}`, cursor: "pointer", textAlign: "left" }}
                 >
                   <div style={{ textTransform: "capitalize", color: k === tk ? C.lime : C.chalk, fontSize: 14 }}>
@@ -1064,6 +1050,40 @@ export default function App() {
         </div>
       </div>
 
+      {catchupOpen && (
+        <Modal title="Rattraper une séance" onClose={() => setCatchupOpen(false)}>
+          <CatchUp
+            exerciseChips={exerciseChips}
+            exercise={exercise}
+            type={type}
+            catalog={catalog}
+            weight={weight}
+            reps={reps}
+            setReps={setReps}
+            secs={secs}
+            setSecs={setSecs}
+            mode={mode}
+            setMode={setMode}
+            stepper={stepper}
+            history={history}
+            saveDay={saveDay}
+            todayKey={tk}
+          />
+        </Modal>
+      )}
+
+      {recapDate && history[recapDate]?.sets?.length > 0 && (
+        <Modal title="Récap de la séance" onClose={() => setRecapDate(null)}>
+          <DayRecap
+            date={recapDate}
+            sets={history[recapDate].sets}
+            todayKey={tk}
+            stepper={stepper}
+            saveDay={saveDay}
+          />
+        </Modal>
+      )}
+
       <nav style={S.bottomBar}>
         {TABS.map((t) => {
           const active = tab === t.key;
@@ -1081,8 +1101,8 @@ export default function App() {
 }
 
 // ── Une série déjà enregistrée : affichage normal, ou formulaire
-// d'édition inline (valeur, charge) au tap. Réutilisé par Aujourd'hui
-// et Rattrapage pour corriger/supprimer une série sans tout reprendre.
+// d'édition inline (valeur, charge) au tap. Réutilisé par Aujourd'hui,
+// le récap de séance et le rattrapage pour corriger/supprimer sans tout reprendre.
 function SetRow({ set, stepper, onSave, onDelete, numbered }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(set.reps);
@@ -1137,16 +1157,50 @@ function SetRow({ set, stepper, onSave, onDelete, numbered }) {
   );
 }
 
-// ── Catch-up tab: log a session on any past date ─────────────
-function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps, secs, setSecs, mode, setMode, stepper, history, saveDay, todayKey, jumpDate, onJumped }) {
+// ── Modal générique : feuille qui remonte du bas, style "chalk & iron" ──
+function Modal({ title, onClose, children }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 30,
+        background: "rgba(8,10,14,.72)",
+        display: "flex", alignItems: "flex-end", justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 440, maxHeight: "88vh", overflowY: "auto",
+          background: C.panel, borderTop: `1px solid ${C.line}`,
+          borderTopLeftRadius: 22, borderTopRightRadius: 22,
+          padding: "18px 18px calc(24px + env(safe-area-inset-bottom, 0px))",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: C.chalk }}>{title}</div>
+          <button
+            onClick={onClose}
+            style={{
+              background: C.panelHi, border: `1px solid ${C.line}`, color: C.muted,
+              width: 32, height: 32, borderRadius: 999, fontSize: 16, cursor: "pointer", lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Rattraper une séance : logguer des séries sur une date passée ──
+// (ouvert via un bouton dans Progrès, dans un modal — usage exceptionnel)
+function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps, secs, setSecs, mode, setMode, stepper, history, saveDay, todayKey }) {
   const [date, setDate] = useState(todayKey);
   const [series, setSeries] = useState(3);
   const [msg, setMsg] = useState("");
-
-  // Arrivée depuis "Historique" (Aujourd'hui) avec une date précise à ouvrir.
-  useEffect(() => {
-    if (jumpDate) { setDate(jumpDate); onJumped(); }
-  }, [jumpDate]);
 
   const existing = history[date] || { sets: [] };
   const val = mode === "time" ? secs : reps;
@@ -1169,7 +1223,7 @@ function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps
   };
 
   return (
-    <div style={S.card}>
+    <div>
       <div style={S.label}>Jour à rattraper</div>
       <input
         type="date"
@@ -1230,6 +1284,73 @@ function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps
       )}
 
       {msg && <div style={{ marginTop: 14, color: C.done, fontSize: 13, fontWeight: 600 }}>{msg}</div>}
+    </div>
+  );
+}
+
+// ── Récap d'une séance passée : groupé par exercice (séries, reps,
+// charge), édition/suppression au tap comme ailleurs. Ouvert depuis
+// l'Historique de Progrès.
+function DayRecap({ date, sets, todayKey, stepper, saveDay }) {
+  const order = [];
+  const byExo = {};
+  sets.forEach((s) => {
+    if (!byExo[s.exercise]) { byExo[s.exercise] = []; order.push(s.exercise); }
+    byExo[s.exercise].push(s);
+  });
+
+  const clearDay = () => saveDay(date, { sets: [] });
+
+  return (
+    <div>
+      <div style={{ color: C.muted, fontSize: 13, marginBottom: 16, textTransform: "capitalize" }}>
+        {fmtDate(date)} {date === todayKey ? "· aujourd'hui" : ""} · {sets.length} série{sets.length > 1 ? "s" : ""}
+      </div>
+
+      {order.map((name) => {
+        const gSets = byExo[name];
+        const repsTot = gSets.filter((s) => s.mode !== "time").reduce((a, s) => a + s.reps, 0);
+        const timeTot = gSets.filter((s) => s.mode === "time").reduce((a, s) => a + s.reps, 0);
+        const weights = gSets.filter((s) => s.weight > 0).map((s) => s.weight);
+        const weightLabel = weights.length
+          ? (Math.min(...weights) === Math.max(...weights) ? `${Math.min(...weights)}kg` : `${Math.min(...weights)}–${Math.max(...weights)}kg`)
+          : null;
+        const parts = [];
+        if (repsTot) parts.push(`${repsTot} reps`);
+        if (timeTot) parts.push(fmtVal(timeTot, "time"));
+        if (weightLabel) parts.push(`charge ${weightLabel}`);
+
+        return (
+          <div key={name} style={{ ...S.pickSection, marginTop: 0, marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+              <div style={{ color: C.chalk, fontSize: 15, fontWeight: 800 }}>{name}</div>
+              <div style={{ color: C.muted, fontSize: 12 }}>{gSets.length} série{gSets.length > 1 ? "s" : ""}</div>
+            </div>
+            {parts.length > 0 && (
+              <div style={{ color: C.lime, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
+                {parts.join(" · ")}
+              </div>
+            )}
+            {gSets.map((s, i) => {
+              const globalIdx = sets.indexOf(s);
+              return (
+                <SetRow
+                  key={globalIdx}
+                  set={s}
+                  numbered={i + 1}
+                  stepper={stepper}
+                  onSave={(patch) => saveDay(date, { sets: sets.map((x, j) => (j === globalIdx ? { ...x, ...patch } : x)) })}
+                  onDelete={() => saveDay(date, { sets: sets.filter((_, j) => j !== globalIdx) })}
+                />
+              );
+            })}
+          </div>
+        );
+      })}
+
+      <button onClick={clearDay} style={{ ...S.ghost, width: "100%" }}>
+        Vider cette journée
+      </button>
     </div>
   );
 }
@@ -1586,7 +1707,7 @@ const METRIC_INFO = {
   weight: { label: "Charge max", unit: "kg", step: 2.5 },
 };
 
-function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog }) {
+function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, onOpenCatchup }) {
   const [period, setPeriod] = useState("week");
   const [type, setType] = useState(defaultTypeKey(catalog));
   const [group, setGroup] = useState(catalog.groups[0] || "");
@@ -1678,6 +1799,20 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog })
 
   return (
     <>
+      <button
+        onClick={onOpenCatchup}
+        style={{
+          ...S.card, display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
+          cursor: "pointer", textAlign: "left", color: C.chalk,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <TabIcon name="catchup" color={C.lime} />
+          <span style={{ fontSize: 15, fontWeight: 800 }}>Rattraper une séance</span>
+        </div>
+        <span style={{ color: C.muted, fontSize: 20 }}>›</span>
+      </button>
+
       <div style={S.card}>
         <button
           onClick={() => setFilterOpen((v) => !v)}
