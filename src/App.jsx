@@ -246,6 +246,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState(null); // dernière erreur de sauvegarde/chargement, visible à l'écran
   const [tab, setTab] = useState("today"); // today | catchup | workout
+  const [catchupDate, setCatchupDate] = useState(null); // date à ouvrir dans Rattrapage (ex: depuis Historique)
   const [type, setType] = useState("poids");
   const [group, setGroup] = useState(DEFAULT_GROUPS[0]);
   const [exercise, setExercise] = useState(defaultItemsFor("poids", DEFAULT_GROUPS[0])[0]);
@@ -898,6 +899,8 @@ export default function App() {
             history={history}
             saveDay={saveDay}
             todayKey={tk}
+            jumpDate={catchupDate}
+            onJumped={() => setCatchupDate(null)}
           />
         )}
 
@@ -1039,14 +1042,18 @@ export default function App() {
               if (repsTot) parts.push(`${repsTot} reps`);
               if (timeTot) parts.push(fmtVal(timeTot, "time"));
               return (
-                <div key={k} style={S.histRow}>
+                <button
+                  key={k}
+                  onClick={() => { setCatchupDate(k); setTab("catchup"); }}
+                  style={{ ...S.histRow, width: "100%", background: "none", border: "none", borderTop: `1px solid ${C.line}`, cursor: "pointer", textAlign: "left" }}
+                >
                   <div style={{ textTransform: "capitalize", color: k === tk ? C.lime : C.chalk, fontSize: 14 }}>
                     {fmtDate(k)} {k === tk ? "· aujourd'hui" : ""}
                   </div>
                   <div style={{ color: C.muted, fontSize: 13 }}>
                     {sets.length} séries{parts.length ? " · " : ""}<span style={{ color: C.chalk, fontWeight: 700 }}>{parts.join(" + ")}</span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -1131,10 +1138,15 @@ function SetRow({ set, stepper, onSave, onDelete, numbered }) {
 }
 
 // ── Catch-up tab: log a session on any past date ─────────────
-function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps, secs, setSecs, mode, setMode, stepper, history, saveDay, todayKey }) {
+function CatchUp({ exerciseChips, exercise, type, catalog, weight, reps, setReps, secs, setSecs, mode, setMode, stepper, history, saveDay, todayKey, jumpDate, onJumped }) {
   const [date, setDate] = useState(todayKey);
   const [series, setSeries] = useState(3);
   const [msg, setMsg] = useState("");
+
+  // Arrivée depuis "Historique" (Aujourd'hui) avec une date précise à ouvrir.
+  useEffect(() => {
+    if (jumpDate) { setDate(jumpDate); onJumped(); }
+  }, [jumpDate]);
 
   const existing = history[date] || { sets: [] };
   const val = mode === "time" ? secs : reps;
