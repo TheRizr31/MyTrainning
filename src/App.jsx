@@ -1123,15 +1123,15 @@ function SetRow({ set, stepper, onSave, onDelete, numbered }) {
           <div style={{ marginBottom: 18 }}>{stepper(wt, setWt, 0, 300, 2.5, "kg")}</div>
         </>
       )}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button
-          onClick={() => { onSave({ reps: val, ...(set.weight != null ? { weight: wt } : {}) }); setEditing(false); }}
-          style={{ ...S.validate, flex: 1, marginTop: 0 }}
-        >
-          Enregistrer
-        </button>
-        <button onClick={() => setEditing(false)} style={S.ghost}>Annuler</button>
-        <button onClick={onDelete} style={{ ...S.ghost, borderColor: C.ring, color: C.ring }}>Supprimer</button>
+      <button
+        onClick={() => { onSave({ reps: val, ...(set.weight != null ? { weight: wt } : {}) }); setEditing(false); }}
+        style={{ ...S.validate, marginTop: 0 }}
+      >
+        Enregistrer
+      </button>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button onClick={() => setEditing(false)} style={{ ...S.ghost, flex: 1, textAlign: "center" }}>Annuler</button>
+        <button onClick={onDelete} style={{ ...S.ghost, flex: 1, textAlign: "center", borderColor: C.ring, color: C.ring }}>Supprimer</button>
       </div>
     </div>
   );
