@@ -237,6 +237,45 @@ function TabIcon({ name, color }) {
   );
 }
 
+// ── Stepper –/+ dont la valeur est aussi un champ texte tapable
+// (clavier numérique mobile) : mêmes bornes/step, mais on peut taper
+// directement une valeur au lieu d'appuyer plusieurs fois sur +/-.
+function Stepper({ val, set, min, max, step, suffix }) {
+  const [text, setText] = useState(String(val));
+  useEffect(() => { setText(String(val)); }, [val]);
+
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  const commit = (raw) => {
+    const n = parseFloat(String(raw).replace(",", "."));
+    if (!isNaN(n)) {
+      set(round2(Math.min(max, Math.max(min, n))));
+    } else {
+      setText(String(val));
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <button onClick={() => set(round2(Math.max(min, val - step)))} style={S.step}>–</button>
+      <div style={{ minWidth: 92, textAlign: "center" }}>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+          style={S.stepperInput}
+        />
+        <span style={{ fontSize: 14, color: C.muted, marginLeft: 4 }}>{suffix}</span>
+      </div>
+      <button onClick={() => set(round2(Math.min(max, val + step)))} style={S.step}>+</button>
+    </div>
+  );
+}
+
 export default function App() {
   const [history, setHistory] = useState({}); // { dateKey: session }
   const [workouts, setWorkouts] = useState({}); // { id: {name, blocks} }
@@ -608,14 +647,7 @@ export default function App() {
     .reverse();
 
   const stepper = (val, set, min, max, step, suffix) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <button onClick={() => set(Math.max(min, val - step))} style={S.step}>–</button>
-      <div style={{ minWidth: 92, textAlign: "center" }}>
-        <span style={{ fontSize: 30, fontWeight: 800, color: C.chalk, letterSpacing: "-.02em" }}>{val}</span>
-        <span style={{ fontSize: 14, color: C.muted, marginLeft: 4 }}>{suffix}</span>
-      </div>
-      <button onClick={() => set(Math.min(max, val + step))} style={S.step}>+</button>
-    </div>
+    <Stepper val={val} set={set} min={min} max={max} step={step} suffix={suffix} />
   );
 
   const groupItems = catItemsFor(catalog, type, group);
@@ -2347,6 +2379,11 @@ const S = {
     width: 44, height: 44, borderRadius: 12, border: `1px solid ${C.line}`,
     background: C.panelHi, color: C.chalk, fontSize: 24, fontWeight: 600, cursor: "pointer",
     display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1,
+  },
+  stepperInput: {
+    width: 74, background: "transparent", border: "none", outline: "none", padding: 0,
+    fontSize: 30, fontWeight: 800, color: C.chalk, letterSpacing: "-.02em", textAlign: "right",
+    fontFamily: "inherit",
   },
   chip: {
     padding: "9px 14px", borderRadius: 999, border: `1px solid ${C.line}`,
