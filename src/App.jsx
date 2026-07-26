@@ -1453,6 +1453,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog })
   const [type, setType] = useState(defaultTypeKey(catalog));
   const [group, setGroup] = useState(catalog.groups[0] || "");
   const [exercise, setExercise] = useState(null); // null = vue globale (tous exercices)
+  const [filterOpen, setFilterOpen] = useState(false); // replié par défaut pour gagner de la place
   const [search, setSearch] = useState("");
 
   const groupItems = catItemsFor(catalog, type, group);
@@ -1540,20 +1541,32 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog })
   return (
     <>
       <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.label}>Filtrer par exercice</div>
-          {exercise && (
-            <button onClick={() => { setExercise(null); setSearch(""); }} style={S.ghostSmall}>
-              Tous les exercices
-            </button>
-          )}
-        </div>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍  Rechercher un exercice… (laisser vide = vue globale)"
-          style={S.searchInput}
-        />
+        <button
+          onClick={() => setFilterOpen((v) => !v)}
+          style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: filterOpen ? 12 : 0 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={S.label}>Filtrer par exercice</span>
+            <span style={{ color: C.muted, fontSize: 11 }}>{filterOpen ? "▲" : "▼"}</span>
+          </div>
+          <span style={{ color: exercise ? C.lime : C.muted, fontSize: 13, fontWeight: 700 }}>
+            {exercise || "Tous les exercices"}
+          </span>
+        </button>
+
+        {filterOpen && (
+          <>
+            {exercise && (
+              <button onClick={() => { setExercise(null); setSearch(""); }} style={{ ...S.ghostSmall, marginBottom: 12 }}>
+                Réinitialiser · tous les exercices
+              </button>
+            )}
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="🔍  Rechercher un exercice… (laisser vide = vue globale)"
+              style={S.searchInput}
+            />
         {searchHits ? (
           <div style={{ margin: "16px 0 6px" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1613,6 +1626,8 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog })
               )}
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
 
