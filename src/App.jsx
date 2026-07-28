@@ -464,6 +464,11 @@ export default function App() {
     clearInterval(tickRef.current);
     beepedRef.current = false;
     const tick = () => {
+      // iOS suspend l'AudioContext au bout de quelques secondes d'inactivité
+      // sonore — sans ce ré-armement régulier, seule la toute première alarme
+      // sonnait (contexte encore actif juste après le tap "Valider"), toutes
+      // les suivantes tombaient sur un contexte suspendu et restaient muettes.
+      ensureAudio();
       const remain = Math.max(0, Math.round((endRef.current - Date.now()) / 1000));
       setRest(remain);
       if (remain <= 0 && !beepedRef.current) {
@@ -1435,6 +1440,37 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
     setDraft([]);
   };
   const removeBlock = (i) => setBlocks((bl) => bl.filter((_, j) => j !== i));
+  // Recharge un bloc déjà ajouté dans le formulaire de composition (exercices,
+  // charge, tours, repos) pour pouvoir le modifier, puis le retire de la liste
+  // le temps de l'édition (il sera réajouté via "Valider ce bloc").
+  const editBlock = (i) => {
+    const b = blocks[i];
+    const exos = b.exercises || [{ exercise: b.exercise, reps: b.reps, mode: b.mode || "reps", type: b.type, weight: b.weight }];
+    setRounds(b.rounds || b.series || 1);
+    setRestBetween(b.restBetween || 0);
+    setRestAfter(b.restAfter != null ? b.restAfter : (b.rest != null ? b.rest : 0));
+    setBlocks((bl) => bl.filter((_, j) => j !== i));
+
+    if (exos.length === 1) {
+      // Bloc à un seul exercice (cas le plus courant) : précharge directement
+      // le sélecteur (type, groupe, charge, reps) au lieu du brouillon, pour
+      // qu'un simple tap sur "+ Ajouter au bloc" après ajustement suffise.
+      const e = exos[0];
+      setDraft([]);
+      const t = e.type || bType;
+      const catEx = catalog.exos.find((x) => x.name === e.exercise && x.type === t);
+      setBType(t);
+      if (catEx) setBGroup(catEx.group);
+      setBEx(e.exercise);
+      setBMode(e.mode || "reps");
+      if ((e.mode || "reps") === "time") setBSecs(e.reps); else setBReps(e.reps);
+      if (e.weight) setBWeight(e.weight);
+    } else {
+      // Superset : recharge le brouillon tel quel — retirer (×) puis
+      // ré-ajouter un exercice précis permet d'en changer la charge.
+      setDraft(exos);
+    }
+  };
   const moveBlock = (i, dir) => setBlocks((bl) => {
     const j = i + dir;
     if (j < 0 || j >= bl.length) return bl;
@@ -1531,6 +1567,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
                   <button onClick={() => moveBlock(i, -1)} disabled={i === 0} style={{ ...S.moveBtn, ...(i === 0 ? S.moveOff : {}) }}>▲</button>
                   <button onClick={() => moveBlock(i, 1)} disabled={i === blocks.length - 1} style={{ ...S.moveBtn, ...(i === blocks.length - 1 ? S.moveOff : {}) }}>▼</button>
                 </div>
+                <button onClick={() => editBlock(i)} title="Modifier ce bloc (exercices, charge, tours, repos)" style={{ ...S.xBtn, fontSize: 15 }}>✎</button>
                 <button onClick={() => removeBlock(i)} style={S.xBtn}>×</button>
               </div>
             ))}
@@ -1550,7 +1587,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
                   <div style={{ flex: 1 }}>
                     <span style={{ color: C.chalk, fontSize: 14, fontWeight: 600 }}>{e.exercise}</span>
                     <span style={{ color: C.muted, fontSize: 12, marginLeft: 8 }}>
-                      {fmtVal(e.reps, e.mode)}{e.mode === "time" ? "" : " reps"}
+                      {fmtVal(e.reps, e.mode)}{e.mode === "time" ? "" : " reps"}{e.weight ? ` @${e.weight}kg` : ""}
                     </span>
                   </div>
                   <button onClick={() => removeExoFromDraft(i)} style={S.xBtn}>×</button>
