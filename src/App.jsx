@@ -1452,6 +1452,21 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
     ]);
   };
   const removeExoFromDraft = (i) => setDraft((d) => d.filter((_, j) => j !== i));
+  // Recharge un exercice du brouillon dans le sélecteur (type, groupe, charge,
+  // reps) pour le modifier sans avoir à le supprimer puis retrouver ses
+  // réglages de zéro — utile pour ajuster la charge d'un exo dans un superset.
+  const editDraftExo = (i) => {
+    const e = draft[i];
+    const t = e.type || bType;
+    const catEx = catalog.exos.find((x) => x.name === e.exercise && x.type === t);
+    setBType(t);
+    if (catEx) setBGroup(catEx.group);
+    setBEx(e.exercise);
+    setBMode(e.mode || "reps");
+    if ((e.mode || "reps") === "time") setBSecs(e.reps); else setBReps(e.reps);
+    if (e.weight) setBWeight(e.weight);
+    removeExoFromDraft(i);
+  };
 
   const addBlock = () => {
     if (!draft.length) return;
@@ -1617,6 +1632,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
                       {fmtVal(e.reps, e.mode)}{e.mode === "time" ? "" : " reps"}{e.weight ? ` @${e.weight}kg` : ""}
                     </span>
                   </div>
+                  <button onClick={() => editDraftExo(i)} title="Modifier cet exercice (charge, reps)" style={{ ...S.xBtn, fontSize: 15 }}>✎</button>
                   <button onClick={() => removeExoFromDraft(i)} style={S.xBtn}>×</button>
                 </div>
               ))}
