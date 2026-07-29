@@ -99,18 +99,27 @@ Méthodes de l'interface (toutes async) :
 
 ## 3. Modèle de données (clés de stockage)
 
-Cinq familles de clés :
+Six familles de clés :
 
 - `day:<YYYY-MM-DD>` → une **journée** : `{ sets: Set[] }`
 - `wk:<id>` → un **entraînement** réutilisable : `{ id, name, blocks: Block[] }`
 - `run:active` → la **séance guidée en cours** (ou absente) : `Run`
-- `goal:<id>` → un **objectif** (onglet Progrès) : `{ id, exercise, metric, target, unit, deadline, createdAt }`
+- `goal:<id>` → un **objectif** (onglet Progrès) : `{ id, exercise, metric, target, unit, deadline, createdAt, startWeight? }`
   - `exercise` : `string | null` (`null` = objectif global toutes catégories)
-  - `metric` : `"sessions" | "series" | "reps" | "time" | "volume" | "weight"`
+  - `metric` : `"sessions" | "series" | "reps" | "time" | "volume" | "weight" | "bodyweight"`
     (voir `metricValue()` dans `App.jsx` — même fonction utilisée pour les
     tuiles KPI et le calcul de progression d'un objectif)
   - La progression se calcule sur les séries loguées **depuis `createdAt`**
-    uniquement (pas d'historique rétroactif compté dans un objectif).
+    uniquement (pas d'historique rétroactif compté dans un objectif) — sauf
+    pour `metric === "bodyweight"` (voir ci-dessous).
+  - `startWeight` : uniquement pour `metric === "bodyweight"` — poids capturé
+    à la création de l'objectif, sert de référence pour calculer la
+    progression dans les deux sens (perte OU prise de poids) : `pct = (poids
+    actuel − startWeight) / (target − startWeight) × 100`. Le "poids actuel"
+    est la pesée `bw:*` la plus récente, pas une somme de séries.
+- `bw:<YYYY-MM-DD>` → une **pesée** (poids corporel) : `{ weight: number }`
+  — indépendante des séries d'entraînement, saisie/consultée depuis la carte
+  "Poids corporel" de l'onglet Progrès (vue globale uniquement).
 - `catalog:data` → le **catalogue d'exercices** (types, groupes, exercices),
   entièrement éditable depuis l'onglet Catalogue. Voir §4 pour sa forme.
 

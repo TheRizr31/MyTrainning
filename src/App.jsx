@@ -280,6 +280,7 @@ export default function App() {
   const [history, setHistory] = useState({}); // { dateKey: session }
   const [workouts, setWorkouts] = useState({}); // { id: {name, blocks} }
   const [goals, setGoals] = useState({}); // { id: {id, exercise, metric, target, unit, deadline, createdAt} }
+  const [bodyweight, setBodyweight] = useState({}); // { dateKey: kg } — pesées, indépendantes des séries
   const [catalog, setCatalog] = useState(buildDefaultCatalog); // { types, groups, exos } — persisté sous catalog:data
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState(null); // dernière erreur de sauvegarde/chargement, visible à l'écran
@@ -394,6 +395,17 @@ export default function App() {
         }
       } catch (e) { reportError("Chargement des objectifs", e); }
       try {
+        const br = await window.storage.list("bw:");
+        if (br?.keys?.length) {
+          const bs = {};
+          for (const k of br.keys) {
+            const r = await window.storage.get(k);
+            if (r) bs[k.replace("bw:", "")] = JSON.parse(r.value).weight;
+          }
+          setBodyweight(bs);
+        }
+      } catch (e) { reportError("Chargement du poids corporel", e); }
+      try {
         const cr = await window.storage.get("catalog:data");
         if (cr) {
           setCatalog(JSON.parse(cr.value));
@@ -440,6 +452,15 @@ export default function App() {
   const deleteGoal = async (id) => {
     setGoals((gs) => { const n = { ...gs }; delete n[id]; return n; });
     try { await window.storage.delete("goal:" + id); } catch (e) { reportError("Suppression de l'objectif", e); }
+  };
+
+  const saveBodyweight = async (date, w) => {
+    setBodyweight((bw) => ({ ...bw, [date]: w }));
+    try { await window.storage.set("bw:" + date, JSON.stringify({ weight: w })); } catch (e) { reportError("Sauvegarde de la pesée", e); }
+  };
+  const deleteBodyweight = async (date) => {
+    setBodyweight((bw) => { const n = { ...bw }; delete n[date]; return n; });
+    try { await window.storage.delete("bw:" + date); } catch (e) { reportError("Suppression de la pesée", e); }
   };
 
   const saveCatalog = (next) => {
@@ -936,8 +957,12 @@ export default function App() {
             goals={goals}
             saveGoal={saveGoal}
             deleteGoal={deleteGoal}
+            bodyweight={bodyweight}
+            saveBodyweight={saveBodyweight}
+            deleteBodyweight={deleteBodyweight}
             stepper={stepper}
             catalog={catalog}
+            todayKey={tk}
             onOpenCatchup={() => setCatchupOpen(true)}
           />
         )}
@@ -1831,9 +1856,10 @@ const METRIC_INFO = {
   time: { label: "Temps", unit: "s", step: 30 },
   volume: { label: "Volume", unit: "kg", step: 50 },
   weight: { label: "Charge max", unit: "kg", step: 2.5 },
+  bodyweight: { label: "Poids du corps", unit: "kg", step: 0.5 },
 };
 
-function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, onOpenCatchup }) {
+function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBodyweight, deleteBodyweight, stepper, catalog, todayKey: tk, onOpenCatchup }) {
   const [period, setPeriod] = useState("week");
   const [type, setType] = useState(defaultTypeKey(catalog));
   const [group, setGroup] = useState(catalog.groups[0] || "");
@@ -1932,10 +1958,22 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, o
     setExercise(name);
   };
 
+  // ── Poids corporel — mesures indépendantes des séries ───────────
+  const bwDates = Object.keys(bodyweight).sort();
+  const latestBw = bwDates.length ? bodyweight[bwDates[bwDates.length - 1]] : null;
+  const latestBwDate = bwDates.length ? bwDates[bwDates.length - 1] : null;
+  const [showBwForm, setShowBwForm] = useState(false);
+  const [bwDate, setBwDate] = useState(tk);
+  const [bwVal, setBwVal] = useState(latestBw || 70);
+  const logBodyweight = () => {
+    saveBodyweight(bwDate, bwVal);
+    setShowBwForm(false);
+  };
+
   // ── Objectifs ─────────────────────────────────────────────────
   const availableMetrics = exercise
     ? (kWeight > 0 ? ["weight", "volume", "sessions", "series"] : kTime > 0 ? ["time", "sessions", "series"] : ["reps", "sessions", "series"])
-    : ["sessions", "series", "reps", "volume", "time"];
+    : ["sessions", "series", "reps", "volume", "time", "bodyweight"];
   const scopedGoals = Object.values(goals).filter((g) => (exercise ? g.exercise === exercise : !g.exercise));
 
   const [showGoalForm, setShowGoalForm] = useState(false);
@@ -1952,6 +1990,9 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, o
       unit: METRIC_INFO[gMetric].unit,
       deadline: gDeadline || null,
       createdAt: new Date().toISOString(),
+      // Poids de départ capturé à la création — sert de référence pour un
+      // objectif qui peut viser à la fois une perte ou une prise de poids.
+      ...(gMetric === "bodyweight" ? { startWeight: latestBw || gTarget } : {}),
     });
     setShowGoalForm(false);
     setGTarget(10);
@@ -1959,6 +2000,14 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, o
   };
 
   const goalProgress = (g) => {
+    if (g.metric === "bodyweight") {
+      const current = latestBw != null ? latestBw : g.startWeight;
+      const start = g.startWeight != null ? g.startWeight : current;
+      if (current == null) return { current: null, pct: 0 };
+      if (start === g.target) return { current, pct: current === g.target ? 100 : 0 };
+      const pct = Math.min(100, Math.max(0, Math.round(((current - start) / (g.target - start)) * 100)));
+      return { current, pct };
+    }
     const relevant = allSets.filter((s) => (g.exercise ? s.exercise === g.exercise : true) && s.date >= g.createdAt.slice(0, 10));
     const current = metricValue(relevant, g.metric);
     return { current, pct: Math.min(100, Math.round((current / g.target) * 100)) };
@@ -2168,6 +2217,58 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, o
         </div>
       )}
 
+      {!exercise && (
+        <div style={S.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={S.label}>Poids corporel</div>
+            <button onClick={() => { setBwDate(tk); setBwVal(latestBw || 70); setShowBwForm((v) => !v); }} style={S.ghostSmall}>
+              {showBwForm ? "Annuler" : "+ Pesée"}
+            </button>
+          </div>
+
+          {showBwForm && (
+            <div style={{ ...S.pickSection, marginBottom: 14 }}>
+              <div style={S.gridLabel}>Date</div>
+              <input
+                type="date"
+                value={bwDate}
+                max={tk}
+                onChange={(e) => setBwDate(e.target.value)}
+                style={{ ...S.dateInput, marginBottom: 14 }}
+              />
+              <div style={S.gridLabel}>Poids</div>
+              <div style={{ marginBottom: 14 }}>{stepper(bwVal, setBwVal, 20, 300, 0.5, "kg")}</div>
+              <button onClick={logBodyweight} style={S.validate}>Enregistrer la pesée</button>
+            </div>
+          )}
+
+          {bwDates.length === 0 ? (
+            <div style={{ color: C.muted, fontSize: 14 }}>Aucune pesée enregistrée pour l'instant.</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
+                <div style={{ fontSize: 28, fontWeight: 800, color: C.chalk, letterSpacing: "-.02em" }}>{latestBw}<span style={{ fontSize: 14 }}>kg</span></div>
+                <div style={{ color: C.muted, fontSize: 12, textTransform: "capitalize" }}>{fmtDate(latestBwDate)}</div>
+              </div>
+              {bwDates.length > 1 && (
+                <div style={{ marginBottom: 14 }}>
+                  <Sparkline values={bwDates.map((d) => bodyweight[d])} color={C.done} />
+                </div>
+              )}
+              {bwDates.slice().reverse().slice(0, 8).map((d, i) => (
+                <div key={d} style={{ ...S.histRow, borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
+                  <div style={{ textTransform: "capitalize", color: C.chalk, fontSize: 13 }}>{fmtDate(d)}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ color: C.chalk, fontWeight: 700, fontSize: 13 }}>{bodyweight[d]}kg</span>
+                    <button onClick={() => deleteBodyweight(d)} style={{ ...S.xBtn, width: 24, height: 24, fontSize: 13 }}>×</button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
           <div style={S.label}>{exercise || "Tous les exercices"}</div>
@@ -2293,7 +2394,11 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, o
             <div style={S.gridLabel}>Métrique</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
               {availableMetrics.map((m) => (
-                <button key={m} onClick={() => setGMetric(m)} style={{ ...S.catChip, ...(gMetric === m ? S.catChipOn : {}) }}>
+                <button
+                  key={m}
+                  onClick={() => { setGMetric(m); if (m === "bodyweight") setGTarget(latestBw || 70); }}
+                  style={{ ...S.catChip, ...(gMetric === m ? S.catChipOn : {}) }}
+                >
                   {METRIC_INFO[m].label}
                 </button>
               ))}
@@ -2326,7 +2431,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, o
                   <button onClick={() => deleteGoal(g.id)} style={S.xBtn}>×</button>
                 </div>
                 <div style={{ color: C.muted, fontSize: 13, marginTop: 2 }}>
-                  {Math.round(current)}{g.unit} / {g.target}{g.unit}
+                  {current == null ? "—" : (g.metric === "bodyweight" || g.metric === "weight" ? current : Math.round(current))}{g.unit} / {g.target}{g.unit}
                   {daysLeft != null && (daysLeft >= 0 ? ` · ${daysLeft}j restants` : " · échéance dépassée")}
                 </div>
                 <div style={S.progressTrack}>
