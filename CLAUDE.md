@@ -33,11 +33,17 @@ Fonctionnalités déjà implémentées (toutes dans `src/App.jsx`) :
   l'historique du jour. Boutons « Passer la série » et « Bloc suivant ».
 - **Historique** : récap par jour, distinguant total reps et total temps.
 - **Onglet Progrès** : pour un exercice choisi (même sélecteur type → groupe
-  → exercice), graphique en barres + tableau brut par séance. Métrique
-  affichée : volume (reps × poids) si des séries pèsent quelque chose, sinon
-  temps total ou reps totales selon le mode dominant. KPIs (séances, séries,
-  reps, temps, volume, charge max, exercice favori) + objectifs personnels
-  avec suivi de progression (voir §3, clé `goal:<id>`).
+  → exercice), graphique en barres + tableau brut par séance, plus un
+  sparkline de tendance (composant `Sparkline`, SVG pur, pas de lib) et,
+  pour un exercice à charge, un second sparkline de progression de la
+  charge max. Métrique affichée : volume (reps × poids) si des séries
+  pèsent quelque chose, sinon temps total ou reps totales selon le mode
+  dominant. KPIs (séances, séries, reps, temps, volume, charge max,
+  exercice favori) + objectifs personnels avec suivi de progression (voir
+  §3, clé `goal:<id>`). En vue globale : carte **Résumé** (semaine/mois
+  courants vs précédents, avec delta) et carte **Détail par exercice**
+  (liste triée par volume d'entraînement, chaque ligne fait drill-down
+  vers la vue filtrée de cet exercice).
 - **Onglet Catalogue** : le catalogue d'exercices (types, groupes musculaires,
   exercices) est entièrement éditable — créer/renommer/supprimer un type, un
   groupe ou un exercice, et marquer un type comme impliquant une charge

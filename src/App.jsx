@@ -1194,6 +1194,33 @@ function SetRow({ set, stepper, onSave, onDelete, numbered }) {
   );
 }
 
+// ── Petit graphe de tendance en SVG — pas de lib, quelques points/lignes,
+// négligeable en mémoire/CPU. Utilisé dans Progrès pour visualiser
+// l'évolution d'une métrique (volume, charge…) période après période.
+function Sparkline({ values, color, height = 44 }) {
+  if (!values.length) return null;
+  const max = Math.max(1, ...values);
+  const min = Math.min(0, ...values);
+  const range = max - min || 1;
+  const w = 100;
+  const stepX = values.length > 1 ? w / (values.length - 1) : 0;
+  const pt = (v, i) => {
+    const x = values.length > 1 ? i * stepX : w / 2;
+    const y = height - ((v - min) / range) * height;
+    return [x, y];
+  };
+  const points = values.map((v, i) => pt(v, i).join(",")).join(" ");
+  return (
+    <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ width: "100%", height, display: "block" }}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      {values.map((v, i) => {
+        const [x, y] = pt(v, i);
+        return <circle key={i} cx={x} cy={y} r={1.8} fill={color} vectorEffect="non-scaling-stroke" />;
+      })}
+    </svg>
+  );
+}
+
 // ── Modal générique : feuille qui remonte du bas, style "chalk & iron" ──
 function Modal({ title, onClose, children }) {
   return (
@@ -1731,6 +1758,20 @@ function bucketLabel(key, period) {
   return "Sem. " + new Date(key + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 }
 
+// Clé de la période PRÉCÉDENTE (même format que bucketKey) — sert au résumé
+// hebdo/mensuel pour comparer "cette semaine" à "la semaine dernière".
+function prevBucketKey(key, period) {
+  if (period === "year") return String(Number(key) - 1);
+  if (period === "month") {
+    const [y, m] = key.split("-").map(Number);
+    const d = new Date(y, m - 2, 1); // mois précédent (m est 1-indexé)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+  const d = new Date(key + "T00:00:00");
+  d.setDate(d.getDate() - 7);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 // Résume un paquet de séries — soit pour un exercice précis (volume/temps/reps),
 // soit globalement (nombre de séries + top exercices). Utilisé aussi bien pour
 // une période entière (semaine/mois/année) que pour le détail jour par jour
@@ -1833,6 +1874,47 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, o
     const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
     favorite = top ? top[0] : null;
   }
+
+  // ── Résumé hebdo / mensuel — période courante vs précédente ────
+  const summaryFor = (per) => {
+    const curKey = bucketKey(todayKey(), per);
+    const prevKey = prevBucketKey(curKey, per);
+    const curSets = scoped.filter((s) => bucketKey(s.date, per) === curKey);
+    const prevSets = scoped.filter((s) => bucketKey(s.date, per) === prevKey);
+    return {
+      sessions: metricValue(curSets, "sessions"),
+      prevSessions: metricValue(prevSets, "sessions"),
+      series: metricValue(curSets, "series"),
+      prevSeries: metricValue(prevSets, "series"),
+      ...summarizeSets(curSets, exercise),
+    };
+  };
+  const weekSummary = summaryFor("week");
+  const monthSummary = summaryFor("month");
+  const delta = (cur, prev) => {
+    if (prev === 0) return cur > 0 ? "+" + cur : null;
+    const d = cur - prev;
+    if (d === 0) return null;
+    return (d > 0 ? "+" : "") + d;
+  };
+
+  // ── Détail par exercice (vue globale uniquement) : liste triée par
+  // volume d'entraînement, chaque ligne ouvre le drill-down (filtre exercice).
+  const perExercise = [];
+  if (!exercise) {
+    const byExo = {};
+    allSets.forEach((s) => { (byExo[s.exercise] = byExo[s.exercise] || []).push(s); });
+    const catByName = {};
+    catAllExos(catalog).forEach((x) => { catByName[x.name] = x; });
+    Object.entries(byExo).forEach(([name, sets]) => {
+      perExercise.push({ name, sets, cat: catByName[name], ...summarizeSets(sets, name) });
+    });
+    perExercise.sort((a, b) => b.sets.length - a.sets.length);
+  }
+  const drillInto = (name, cat) => {
+    if (cat) { setType(cat.type); setGroup(cat.group); }
+    setExercise(name);
+  };
 
   // ── Objectifs ─────────────────────────────────────────────────
   const availableMetrics = exercise
@@ -2021,6 +2103,55 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, o
         )}
       </div>
 
+      {scoped.length > 0 && (
+        <div style={S.card}>
+          <div style={{ ...S.label, marginBottom: 14 }}>Résumé{exercise ? ` · ${exercise}` : ""}</div>
+          {[
+            { title: "Cette semaine", s: weekSummary },
+            { title: "Ce mois", s: monthSummary },
+          ].map(({ title, s }) => {
+            const dSessions = delta(s.sessions, s.prevSessions);
+            const dSeries = delta(s.series, s.prevSeries);
+            return (
+              <div key={title} style={{ ...S.histRow, alignItems: "flex-start", borderTop: title === "Cette semaine" ? "none" : `1px solid ${C.line}` }}>
+                <div style={{ color: C.chalk, fontSize: 14, fontWeight: 700 }}>{title}</div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: C.chalk, fontSize: 13 }}>
+                    {s.sessions} séance{s.sessions > 1 ? "s" : ""}
+                    {dSessions && <span style={{ color: dSessions.startsWith("+") ? C.done : C.ring, fontWeight: 700 }}> ({dSessions})</span>}
+                  </div>
+                  <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
+                    {s.series} série{s.series > 1 ? "s" : ""}
+                    {dSeries && <span style={{ color: dSeries.startsWith("+") ? C.done : C.ring, fontWeight: 700 }}> ({dSeries})</span>}
+                    {exercise && s.metric > 0 ? ` · ${s.label} ${Math.round(s.metric)}${s.unit}` : ""}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!exercise && perExercise.length > 0 && (
+        <div style={S.card}>
+          <div style={{ ...S.label, marginBottom: 14 }}>Détail par exercice</div>
+          {perExercise.map((e, i) => (
+            <button
+              key={e.name}
+              onClick={() => drillInto(e.name, e.cat)}
+              style={{ ...S.histRow, width: "100%", background: "none", border: "none", borderTop: i === 0 ? "none" : `1px solid ${C.line}`, cursor: "pointer", textAlign: "left" }}
+            >
+              <div style={{ color: C.chalk, fontSize: 14 }}>{e.name}</div>
+              <div style={{ color: C.muted, fontSize: 13, textAlign: "right" }}>
+                {e.sets.length} série{e.sets.length > 1 ? "s" : ""}
+                {e.metric > 0 ? <> · <span style={{ color: C.chalk, fontWeight: 700 }}>{e.label} {Math.round(e.metric)}{e.unit}</span></> : ""}
+                {e.maxWeight ? ` · max ${e.maxWeight}kg` : ""}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
           <div style={S.label}>{exercise || "Tous les exercices"}</div>
@@ -2043,6 +2174,18 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, stepper, catalog, o
           </div>
         ) : (
           <>
+            {rows.length > 1 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>Tendance · {rows[0].label}</div>
+                <Sparkline values={rows.map((r) => r.metric)} color={C.lime} />
+              </div>
+            )}
+            {exercise && rows.some((r) => r.maxWeight) && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>Progression de la charge (kg)</div>
+                <Sparkline values={rows.map((r) => r.maxWeight || 0)} color={C.effort} />
+              </div>
+            )}
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>Touche une barre pour zoomer jour par jour</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 150, overflowX: "auto", padding: "8px 2px 4px" }}>
               {rows.map((r, i) => (
