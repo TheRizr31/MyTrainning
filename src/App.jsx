@@ -1508,6 +1508,12 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
   const [rounds, setRounds] = useState(5);
   const [restBetween, setRestBetween] = useState(0);  // repos entre exos d'un tour
   const [restAfter, setRestAfter] = useState(90);     // repos après un tour
+  // Vrai pendant l'édition d'un bloc à un seul exercice (voir editBlock) :
+  // le brouillon est vidé pour recharger l'exercice dans le sélecteur, donc
+  // "Paramètres du bloc" (tours/repos) ne peut plus se fier à draft.length
+  // pour rester visible — sans ce flag, le nombre de tours devenait
+  // impossible à modifier juste après avoir tapé ✎.
+  const [editingBlock, setEditingBlock] = useState(false);
 
   const bItems = catItemsFor(catalog, bType, bGroup);
 
@@ -1549,6 +1555,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
       },
     ]);
     setDraft([]);
+    setEditingBlock(false);
   };
   const removeBlock = (i) => setBlocks((bl) => bl.filter((_, j) => j !== i));
   // Recharge un bloc déjà ajouté dans le formulaire de composition (exercices,
@@ -1560,6 +1567,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
     setRounds(b.rounds || b.series || 1);
     setRestBetween(b.restBetween || 0);
     setRestAfter(b.restAfter != null ? b.restAfter : (b.rest != null ? b.rest : 0));
+    setEditingBlock(true);
     setBlocks((bl) => bl.filter((_, j) => j !== i));
 
     if (exos.length === 1) {
@@ -1590,7 +1598,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
     return n;
   });
 
-  const reset = () => { setName(""); setBlocks([]); setDraft([]); setEditId(null); };
+  const reset = () => { setName(""); setBlocks([]); setDraft([]); setEditId(null); setEditingBlock(false); };
 
   const save = () => {
     if (!name.trim() || !blocks.length) return;
@@ -1690,7 +1698,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
 
         {/* ── Block draft builder ── */}
         <div style={{ ...S.pickSection, marginTop: 16 }}>
-          <div style={S.stepHead}><span style={S.stepDot}>+</span> Composer un bloc</div>
+          <div style={S.stepHead}><span style={S.stepDot}>{editingBlock ? "✎" : "+"}</span> {editingBlock ? "Modifier le bloc" : "Composer un bloc"}</div>
 
           {/* draft exercises */}
           {draft.length > 0 && (
@@ -1772,8 +1780,8 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
           </button>
         </div>
 
-        {/* block parameters (only meaningful once draft has content) */}
-        {draft.length > 0 && (
+        {/* block parameters (once draft has content, or mid-edit of a single-exercise block) */}
+        {(draft.length > 0 || editingBlock) && (
           <div style={{ ...S.pickSection }}>
             <div style={S.stepHead}><span style={S.stepDot}>⟳</span> Paramètres du bloc</div>
 
@@ -1800,7 +1808,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
           <button onClick={save} style={{ ...S.validate, flex: 1, opacity: name.trim() && blocks.length ? 1 : 0.4 }}>
             {editId ? "Enregistrer" : "Créer l'entraînement"}
           </button>
-          {(editId || blocks.length > 0 || name || draft.length > 0) && (
+          {(editId || blocks.length > 0 || name || draft.length > 0 || editingBlock) && (
             <button onClick={reset} style={S.ghost}>Annuler</button>
           )}
         </div>
