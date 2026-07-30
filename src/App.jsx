@@ -136,6 +136,51 @@ const fmtVal = (v, m) => {
   return s ? `${mn}min${String(s).padStart(2, "0")}` : `${mn}min`;
 };
 
+// Expand un entraînement (blocs) en séries individuelles (steps) — un bloc
+// peut contenir plusieurs exercices (superset) : chaque tour les enchaîne
+// dans l'ordre, avec un petit repos entre exos et un repos après chaque
+// tour (nul sur le dernier tour d'un bloc). Utilisé à la fois pour lancer
+// la séance guidée et pour estimer sa durée.
+function buildRunSteps(blocks) {
+  const steps = [];
+  blocks.forEach((b, bi) => {
+    // Normalise : anciens blocs à un seul exercice ou nouveaux blocs exercises[].
+    const exos = b.exercises || [{ exercise: b.exercise, reps: b.reps, mode: b.mode || "reps" }];
+    const rounds = b.rounds || b.series || 1;
+    const restBetween = b.restBetween != null ? b.restBetween : 0; // entre exos d'un tour
+    const restAfter = b.restAfter != null ? b.restAfter : (b.rest != null ? b.rest : 0); // après un tour
+    const isSuper = exos.length > 1;
+    for (let r = 0; r < rounds; r++) {
+      exos.forEach((ex, ei) => {
+        const lastExo = ei === exos.length - 1;
+        const lastRound = r === rounds - 1;
+        let restAfterThis;
+        if (!lastExo) restAfterThis = restBetween;
+        else restAfterThis = lastRound ? 0 : restAfter;
+        steps.push({
+          exercise: ex.exercise, reps: ex.reps, mode: ex.mode || "reps", type: ex.type, weight: ex.weight,
+          rest: restAfterThis, round: r + 1, rounds, exoNo: ei + 1, exoCount: exos.length, isSuper, block: bi,
+        });
+      });
+    }
+  });
+  return steps;
+}
+
+// Temps estimé (s) pour dérouler un entraînement : hypothèse ~3s/rep pour les
+// séries en répétitions (tempo courant), durée réelle pour les séries
+// chronométrées, plus les repos entre/après séries tels que configurés.
+function estimateWorkoutSeconds(blocks) {
+  return buildRunSteps(blocks).reduce((total, s) => {
+    const effort = s.mode === "time" ? s.reps : Math.max(15, Math.round(s.reps * 3));
+    return total + effort + (s.rest || 0);
+  }, 0);
+}
+const fmtDuration = (s) => {
+  const min = Math.round(s / 60);
+  return min < 1 ? "< 1 min" : `~${min} min`;
+};
+
 // One shared AudioContext, created/resumed from a user gesture so the
 // browser allows sound to fire later when the timer ends.
 let AC = null;
@@ -561,42 +606,7 @@ export default function App() {
   const setRunP = (r) => { setRun(r); persistRun(r); };
 
   const launchWorkout = (wk) => {
-    // Expand blocks into individual sets (steps). A block can hold several
-    // exercises (superset): each round runs them in order, with an optional
-    // small rest between exercises and a rest after each round.
-    const steps = [];
-    wk.blocks.forEach((b, bi) => {
-      // Normalise: support both old (single exercise) and new (exercises[]) blocks.
-      const exos = b.exercises || [{ exercise: b.exercise, reps: b.reps, mode: b.mode || "reps" }];
-      const rounds = b.rounds || b.series || 1;
-      const restBetween = b.restBetween != null ? b.restBetween : 0; // between exos of a round
-      const restAfter = b.restAfter != null ? b.restAfter : (b.rest != null ? b.rest : 0); // after a round
-      const isSuper = exos.length > 1;
-      for (let r = 0; r < rounds; r++) {
-        exos.forEach((ex, ei) => {
-          const lastExo = ei === exos.length - 1;
-          const lastRound = r === rounds - 1;
-          // Rest that follows THIS set:
-          let restAfterThis;
-          if (!lastExo) restAfterThis = restBetween;       // still inside the round
-          else restAfterThis = lastRound ? 0 : restAfter;  // end of round (0 on final round)
-          steps.push({
-            exercise: ex.exercise,
-            reps: ex.reps,
-            mode: ex.mode || "reps",
-            type: ex.type,
-            weight: ex.weight,
-            rest: restAfterThis,
-            round: r + 1,
-            rounds,
-            exoNo: ei + 1,
-            exoCount: exos.length,
-            isSuper,
-            block: bi,
-          });
-        });
-      }
-    });
+    const steps = buildRunSteps(wk.blocks);
     if (!steps.length) return;
     setRunP({ name: wk.name, steps, idx: 0, blockCount: wk.blocks.length });
     setTab("workout");
@@ -1621,8 +1631,8 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
             <div key={wk.id} style={{ ...S.row, alignItems: "flex-start" }}>
               <div style={{ flex: 1 }}>
                 <div style={{ color: C.chalk, fontSize: 15, fontWeight: 700 }}>{wk.name}</div>
-                <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
-                  {wk.blocks.length} bloc{wk.blocks.length > 1 ? "s" : ""}
+                <div style={{ color: C.muted, fontSize: 12, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+                  {wk.blocks.length} bloc{wk.blocks.length > 1 ? "s" : ""} · <span style={{ color: C.effort, fontWeight: 700 }}>{fmtDuration(estimateWorkoutSeconds(wk.blocks))}</span>
                 </div>
                 <div style={{ color: C.muted, fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
                   {wk.blocks.map((b, i) => <div key={i}>{blockSummary(b)}</div>)}
@@ -1651,6 +1661,9 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
         {/* Blocks already added */}
         {blocks.length > 0 && (
           <div style={{ margin: "16px 0" }}>
+            <div style={{ color: C.effort, fontSize: 12.5, fontWeight: 700, marginBottom: 10, fontVariantNumeric: "tabular-nums" }}>
+              Durée estimée · {fmtDuration(estimateWorkoutSeconds(blocks))}
+            </div>
             {blocks.map((b, i) => (
               <div key={i} style={S.blockRow}>
                 <div style={S.rowNum}>{i + 1}</div>

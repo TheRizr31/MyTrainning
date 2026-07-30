@@ -28,9 +28,15 @@ Fonctionnalités déjà implémentées (toutes dans `src/App.jsx`) :
 - **Onglet Entraînements** : construire des séances réutilisables faites de
   **blocs**. Un bloc = un ou plusieurs exercices (superset), un nombre de
   tours, un repos entre exos et un repos après chaque tour. Réordonner les
-  blocs (▲▼). Lancer une séance guidée qui déroule chaque série une par une,
-  déclenche les repos automatiquement, et enregistre chaque série dans
-  l'historique du jour. Boutons « Passer la série » et « Bloc suivant ».
+  blocs (▲▼). Durée estimée affichée en direct pendant la composition et sur
+  chaque entraînement enregistré (`estimateWorkoutSeconds()` — hypothèse
+  ~3s/rep pour les séries en répétitions, durée réelle pour les séries
+  chronométrées, plus les repos configurés ; réutilise `buildRunSteps()`,
+  la même expansion blocs→séries que la séance guidée, pour ne jamais
+  dériver de son comportement réel). Lancer une séance guidée qui déroule
+  chaque série une par une, déclenche les repos automatiquement, et
+  enregistre chaque série dans l'historique du jour. Boutons « Passer la
+  série » et « Bloc suivant ».
 - **Historique** : récap par jour, distinguant total reps et total temps.
 - **Onglet Progrès** : pour un exercice choisi (même sélecteur type → groupe
   → exercice), graphique en barres + tableau brut par séance, plus un
