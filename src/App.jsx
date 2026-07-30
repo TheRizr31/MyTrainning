@@ -4,13 +4,13 @@ import React, { useState, useEffect, useRef } from "react";
 // Athletic "chalk & iron" direction: deep slate ground, chalk-white
 // numerals, a single electric-lime accent for the live pulse.
 const C = {
-  ground: "#12161C",
-  panel: "#1A1F27",
-  panelHi: "#222834",
+  ground: "#0F131A",
+  panel: "#181D26",
+  panelHi: "#232A37",
   line: "#2C333F",
-  chalk: "#F2F4F0",
-  muted: "#7C8798",
-  lime: "#C4F82A",
+  chalk: "#F3F5F1",
+  muted: "#8892A3",
+  lime: "#C6FA2E",
   limeDim: "#8FB01F",
   done: "#3DD68C",
   ring: "#FF6B4A",
@@ -1098,7 +1098,7 @@ export default function App() {
                   <div style={{ textTransform: "capitalize", color: k === tk ? C.lime : C.chalk, fontSize: 14 }}>
                     {fmtDate(k)} {k === tk ? "· aujourd'hui" : ""}
                   </div>
-                  <div style={{ color: C.muted, fontSize: 13 }}>
+                  <div style={{ color: C.muted, fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
                     {sets.length} séries{parts.length ? " · " : ""}<span style={{ color: C.chalk, fontWeight: 700 }}>{parts.join(" + ")}</span>
                   </div>
                 </button>
@@ -1184,7 +1184,7 @@ function SetRow({ set, stepper, onSave, onDelete, numbered }) {
             {set.rest ? ` · repos ${set.rest}s` : ""}
           </div>
         </div>
-        <div style={{ fontSize: 20, fontWeight: 800, color: set.mode === "time" ? C.effort : C.done, textAlign: "right" }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: set.mode === "time" ? C.effort : C.done, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
           {fmtVal(set.reps, set.mode)}
           {set.weight ? <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>@{set.weight}kg</div> : null}
         </div>
@@ -1413,10 +1413,10 @@ function DayRecap({ date, sets, todayKey, stepper, saveDay }) {
           <div key={name} style={{ ...S.pickSection, marginTop: 0, marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
               <div style={{ color: C.chalk, fontSize: 15, fontWeight: 800 }}>{name}</div>
-              <div style={{ color: C.muted, fontSize: 12 }}>{gSets.length} série{gSets.length > 1 ? "s" : ""}</div>
+              <div style={{ color: C.muted, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{gSets.length} série{gSets.length > 1 ? "s" : ""}</div>
             </div>
             {parts.length > 0 && (
-              <div style={{ color: C.lime, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
+              <div style={{ color: C.lime, fontSize: 13, fontWeight: 700, marginBottom: 10, fontVariantNumeric: "tabular-nums" }}>
                 {parts.join(" · ")}
               </div>
             )}
@@ -2180,7 +2180,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
             return (
               <div key={title} style={{ ...S.histRow, alignItems: "flex-start", borderTop: title === "Cette semaine" ? "none" : `1px solid ${C.line}` }}>
                 <div style={{ color: C.chalk, fontSize: 14, fontWeight: 700 }}>{title}</div>
-                <div style={{ textAlign: "right" }}>
+                <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                   <div style={{ color: C.chalk, fontSize: 13 }}>
                     {s.sessions} séance{s.sessions > 1 ? "s" : ""}
                     {dSessions && <span style={{ color: dSessions.startsWith("+") ? C.done : C.ring, fontWeight: 700 }}> ({dSessions})</span>}
@@ -2207,7 +2207,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
               style={{ ...S.histRow, width: "100%", background: "none", border: "none", borderTop: i === 0 ? "none" : `1px solid ${C.line}`, cursor: "pointer", textAlign: "left" }}
             >
               <div style={{ color: C.chalk, fontSize: 14 }}>{e.name}</div>
-              <div style={{ color: C.muted, fontSize: 13, textAlign: "right" }}>
+              <div style={{ color: C.muted, fontSize: 13, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                 {e.sets.length} série{e.sets.length > 1 ? "s" : ""}
                 {e.metric > 0 ? <> · <span style={{ color: C.chalk, fontWeight: 700 }}>{e.label} {Math.round(e.metric)}{e.unit}</span></> : ""}
                 {e.maxWeight ? ` · max ${e.maxWeight}kg` : ""}
@@ -2247,7 +2247,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
-                <div style={{ fontSize: 28, fontWeight: 800, color: C.chalk, letterSpacing: "-.02em" }}>{latestBw}<span style={{ fontSize: 14 }}>kg</span></div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: C.chalk, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums" }}>{latestBw}<span style={{ fontSize: 14 }}>kg</span></div>
                 <div style={{ color: C.muted, fontSize: 12, textTransform: "capitalize" }}>{fmtDate(latestBwDate)}</div>
               </div>
               {bwDates.length > 1 && (
@@ -2311,7 +2311,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
                   onClick={() => toggleZoom(r.key)}
                   style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 34, background: "none", border: "none", padding: 0, cursor: "pointer" }}
                 >
-                  <div style={{ fontSize: 10, color: zoomKey === r.key ? C.chalk : C.muted, fontWeight: zoomKey === r.key ? 800 : 400, marginBottom: 4, whiteSpace: "nowrap" }}>
+                  <div style={{ fontSize: 10, color: zoomKey === r.key ? C.chalk : C.muted, fontWeight: zoomKey === r.key ? 800 : 400, marginBottom: 4, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
                     {Math.round(r.metric)}{r.unit}
                   </div>
                   <div style={{ width: 22, height: Math.max(4, (r.metric / maxMetric) * 100), background: zoomKey === r.key ? C.effort : C.lime, borderRadius: 5, boxShadow: zoomKey === r.key ? `0 0 0 2px ${C.effort}55` : "none" }} />
@@ -2332,7 +2332,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
                   zoomDayRows.map((r, i) => (
                     <div key={i} style={{ ...S.histRow, borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
                       <div style={{ textTransform: "capitalize", color: C.chalk, fontSize: 13 }}>{fmtDate(r.date)}</div>
-                      <div style={{ color: C.muted, fontSize: 12, textAlign: "right" }}>
+                      <div style={{ color: C.muted, fontSize: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                         {exercise ? (
                           <>
                             {r.sets.length} série{r.sets.length > 1 ? "s" : ""} · <span style={{ color: C.chalk, fontWeight: 700 }}>{r.label} {Math.round(r.metric)}{r.unit}</span>
@@ -2361,7 +2361,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
                   <div style={{ color: C.chalk, fontSize: 14 }}>
                     {bucketLabel(r.key, period)}
                   </div>
-                  <div style={{ color: C.muted, fontSize: 13, textAlign: "right" }}>
+                  <div style={{ color: C.muted, fontSize: 13, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                     {exercise ? (
                       <>
                         {r.sets.length} série{r.sets.length > 1 ? "s" : ""} · <span style={{ color: C.chalk, fontWeight: 700 }}>{r.label} {Math.round(r.metric)}{r.unit}</span>
@@ -2430,14 +2430,14 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
                   <div style={{ color: C.chalk, fontSize: 14, fontWeight: 700 }}>{METRIC_INFO[g.metric].label}</div>
                   <button onClick={() => deleteGoal(g.id)} style={S.xBtn}>×</button>
                 </div>
-                <div style={{ color: C.muted, fontSize: 13, marginTop: 2 }}>
+                <div style={{ color: C.muted, fontSize: 13, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
                   {current == null ? "—" : (g.metric === "bodyweight" || g.metric === "weight" ? current : Math.round(current))}{g.unit} / {g.target}{g.unit}
                   {daysLeft != null && (daysLeft >= 0 ? ` · ${daysLeft}j restants` : " · échéance dépassée")}
                 </div>
                 <div style={S.progressTrack}>
                   <div style={{ ...S.progressFill, width: `${pct}%`, background: done ? C.done : C.lime }} />
                 </div>
-                <div style={{ color: done ? C.done : C.muted, fontSize: 12, fontWeight: 700, marginTop: 4 }}>
+                <div style={{ color: done ? C.done : C.muted, fontSize: 12, fontWeight: 700, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
                   {pct}%{done ? " · Objectif atteint 🎉" : ""}
                 </div>
               </div>
@@ -2684,7 +2684,7 @@ const S = {
   stepperInput: {
     width: 74, background: "transparent", border: "none", outline: "none", padding: 0,
     fontSize: 30, fontWeight: 800, color: C.chalk, letterSpacing: "-.02em", textAlign: "right",
-    fontFamily: "inherit",
+    fontFamily: "inherit", fontVariantNumeric: "tabular-nums",
   },
   chip: {
     padding: "9px 14px", borderRadius: 999, border: `1px solid ${C.line}`,
@@ -2785,7 +2785,7 @@ const S = {
     flex: "1 1 105px", minWidth: 105, background: C.panelHi, border: `1px solid ${C.line}`,
     borderRadius: 12, padding: "12px 14px",
   },
-  statValue: { fontSize: 22, fontWeight: 800, color: C.chalk, lineHeight: 1.1 },
+  statValue: { fontSize: 22, fontWeight: 800, color: C.chalk, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" },
   statLabel: { fontSize: 11, color: C.muted, marginTop: 4, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 },
   goalCard: { background: C.panelHi, border: `1px solid ${C.line}`, borderRadius: 12, padding: 14, marginBottom: 10 },
   progressTrack: { height: 8, borderRadius: 999, background: C.ground, overflow: "hidden", marginTop: 10 },
