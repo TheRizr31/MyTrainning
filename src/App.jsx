@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useId } from "react";
 
 // ── Palette & type ───────────────────────────────────────────
 // Athletic "chalk & iron" direction: deep slate ground, chalk-white
 // numerals, a single electric-lime accent for the live pulse.
 const C = {
-  ground: "#0F131A",
-  panel: "#181D26",
-  panelHi: "#232A37",
-  line: "#2C333F",
+  ground: "#090B10",
+  panel: "#151A22",
+  panelHi: "#28303F",
+  line: "#333B4A",
   chalk: "#F3F5F1",
   muted: "#8892A3",
   lime: "#C6FA2E",
@@ -1223,6 +1223,7 @@ function SetRow({ set, stepper, onSave, onDelete, numbered }) {
 // négligeable en mémoire/CPU. Utilisé dans Progrès pour visualiser
 // l'évolution d'une métrique (volume, charge…) période après période.
 function Sparkline({ values, color, height = 44 }) {
+  const gradId = useId();
   if (!values.length) return null;
   const max = Math.max(1, ...values);
   const min = Math.min(0, ...values);
@@ -1235,14 +1236,46 @@ function Sparkline({ values, color, height = 44 }) {
     return [x, y];
   };
   const points = values.map((v, i) => pt(v, i).join(",")).join(" ");
+  const [lastX, lastY] = pt(values[values.length - 1], values.length - 1);
+  const areaPoints = `0,${height} ${points} ${w},${height}`;
   return (
-    <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ width: "100%", height, display: "block" }}>
+    <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ width: "100%", height, display: "block", overflow: "visible" }}>
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity=".32" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {/* grille légère pour ancrer visuellement la courbe */}
+      <line x1="0" y1={height} x2={w} y2={height} stroke={C.line} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      <polygon points={areaPoints} fill={`url(#${gradId})`} stroke="none" />
       <polyline points={points} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-      {values.map((v, i) => {
+      {values.slice(0, -1).map((v, i) => {
         const [x, y] = pt(v, i);
-        return <circle key={i} cx={x} cy={y} r={1.8} fill={color} vectorEffect="non-scaling-stroke" />;
+        return <circle key={i} cx={x} cy={y} r={1.6} fill={color} opacity={0.55} vectorEffect="non-scaling-stroke" />;
       })}
+      <circle cx={lastX} cy={lastY} r={3.2} fill={color} vectorEffect="non-scaling-stroke" />
+      <circle cx={lastX} cy={lastY} r={3.2} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={4} vectorEffect="non-scaling-stroke" />
     </svg>
+  );
+}
+
+// ── Badge de variation (+2 / -1) — pastille colorée plutôt que du texte
+// brut, pour se repérer sans lire la phrase entière (résumé hebdo/mensuel).
+function DeltaPill({ value }) {
+  if (!value) return null;
+  const up = value.startsWith("+");
+  const tint = up ? C.done : C.ring;
+  return (
+    <span
+      style={{
+        display: "inline-block", marginLeft: 6, padding: "1px 7px", borderRadius: 999,
+        fontSize: 11, fontWeight: 800, color: tint, background: `${tint}26`,
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {value}
+    </span>
   );
 }
 
@@ -2136,25 +2169,25 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
             </div>
             {kReps > 0 && (
               <div style={S.statTile}>
-                <div style={S.statValue}>{kReps}</div>
+                <div style={{ ...S.statValue, color: C.lime }}>{kReps}</div>
                 <div style={S.statLabel}>Reps totales</div>
               </div>
             )}
             {kTime > 0 && (
               <div style={S.statTile}>
-                <div style={S.statValue}>{fmtVal(kTime, "time")}</div>
+                <div style={{ ...S.statValue, color: C.effort }}>{fmtVal(kTime, "time")}</div>
                 <div style={S.statLabel}>Temps total</div>
               </div>
             )}
             {kVolume > 0 && (
               <div style={S.statTile}>
-                <div style={S.statValue}>{Math.round(kVolume)}<span style={{ fontSize: 13 }}>kg</span></div>
+                <div style={{ ...S.statValue, color: C.done }}>{Math.round(kVolume)}<span style={{ fontSize: 13 }}>kg</span></div>
                 <div style={S.statLabel}>Volume soulevé</div>
               </div>
             )}
             {kWeight > 0 && (
               <div style={S.statTile}>
-                <div style={S.statValue}>{kWeight}<span style={{ fontSize: 13 }}>kg</span></div>
+                <div style={{ ...S.statValue, color: C.done }}>{kWeight}<span style={{ fontSize: 13 }}>kg</span></div>
                 <div style={S.statLabel}>Charge max</div>
               </div>
             )}
@@ -2183,11 +2216,11 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
                 <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                   <div style={{ color: C.chalk, fontSize: 13 }}>
                     {s.sessions} séance{s.sessions > 1 ? "s" : ""}
-                    {dSessions && <span style={{ color: dSessions.startsWith("+") ? C.done : C.ring, fontWeight: 700 }}> ({dSessions})</span>}
+                    <DeltaPill value={dSessions} />
                   </div>
                   <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
                     {s.series} série{s.series > 1 ? "s" : ""}
-                    {dSeries && <span style={{ color: dSeries.startsWith("+") ? C.done : C.ring, fontWeight: 700 }}> ({dSeries})</span>}
+                    <DeltaPill value={dSeries} />
                     {exercise && s.metric > 0 ? ` · ${s.label} ${Math.round(s.metric)}${s.unit}` : ""}
                   </div>
                 </div>
