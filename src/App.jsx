@@ -167,12 +167,13 @@ function buildRunSteps(blocks) {
   return steps;
 }
 
-// Temps estimé (s) pour dérouler un entraînement : hypothèse ~3s/rep pour les
-// séries en répétitions (tempo courant), durée réelle pour les séries
-// chronométrées, plus les repos entre/après séries tels que configurés.
+// Temps estimé (s) pour dérouler un entraînement : hypothèse ~10s/rep pour
+// les séries en répétitions (tempo contrôlé, bien exécuté), durée réelle
+// pour les séries chronométrées, plus les repos entre/après séries tels
+// que configurés.
 function estimateWorkoutSeconds(blocks) {
   return buildRunSteps(blocks).reduce((total, s) => {
-    const effort = s.mode === "time" ? s.reps : Math.max(15, Math.round(s.reps * 3));
+    const effort = s.mode === "time" ? s.reps : Math.max(15, Math.round(s.reps * 10));
     return total + effort + (s.rest || 0);
   }, 0);
 }
