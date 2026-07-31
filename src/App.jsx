@@ -1987,6 +1987,17 @@ function summarizeSets(sets, exercise) {
   return { metric: sets.length, label: "Séries", unit: "", top };
 }
 
+// Rend le résultat de summarizeSets() en une valeur courte et lisible
+// (« 1100 reps », « 1200 kg », « 1min30 ») + la teinte associée, plutôt
+// que le libellé long qui rendait la liste « Détail par exercice »
+// illisible une fois collé aux autres chiffres.
+function compactMetric({ metric, label }) {
+  if (!metric) return null;
+  if (label === "Volume") return { text: `${Math.round(metric)} kg`, tint: C.done };
+  if (label === "Temps total") return { text: fmtVal(metric, "time"), tint: C.effort };
+  return { text: `${Math.round(metric)} reps`, tint: C.lime };
+}
+
 // Une seule fonction pour calculer n'importe quel KPI/objectif à partir
 // d'une liste de séries — évite de dupliquer la logique entre les tuiles
 // de stats et le suivi d'objectifs.
@@ -2357,21 +2368,49 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
 
       {!exercise && perExercise.length > 0 && (
         <div style={S.card}>
-          <div style={{ ...S.label, marginBottom: 14 }}>Détail par exercice</div>
-          {perExercise.map((e, i) => (
-            <button
-              key={e.name}
-              onClick={() => drillInto(e.name, e.cat)}
-              style={{ ...S.histRow, width: "100%", background: "none", border: "none", borderTop: i === 0 ? "none" : `1px solid ${C.line}`, cursor: "pointer", textAlign: "left" }}
-            >
-              <div style={{ color: C.chalk, fontSize: 14 }}>{e.name}</div>
-              <div style={{ color: C.muted, fontSize: 13, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                {e.sets.length} série{e.sets.length > 1 ? "s" : ""}
-                {e.metric > 0 ? <> · <span style={{ color: C.chalk, fontWeight: 700 }}>{e.label} {Math.round(e.metric)}{e.unit}</span></> : ""}
-                {e.maxWeight ? ` · max ${e.maxWeight}kg` : ""}
-              </div>
-            </button>
-          ))}
+          <div style={{ ...S.label, marginBottom: 6 }}>Détail par exercice</div>
+          {(() => {
+            const maxSets = Math.max(1, ...perExercise.map((e) => e.sets.length));
+            return perExercise.map((e, i) => {
+              const m = compactMetric(e);
+              return (
+                <button
+                  key={e.name}
+                  onClick={() => drillInto(e.name, e.cat)}
+                  style={{
+                    display: "block", width: "100%", background: "none", border: "none",
+                    borderTop: i === 0 ? "none" : `1px solid ${C.line}`,
+                    padding: "12px 0", cursor: "pointer", textAlign: "left",
+                  }}
+                >
+                  {/* Nom à gauche, métrique principale à droite — chacun sa
+                      colonne, plus de mélange qui partait à la ligne. */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                    <span style={{ color: C.chalk, fontSize: 14.5, fontWeight: 600, minWidth: 0 }}>{e.name}</span>
+                    {m && (
+                      <span style={{ color: m.tint, fontSize: 15, fontWeight: 800, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                        {m.text}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Détails secondaires, discrets, sur leur propre ligne. */}
+                  <div style={{ color: C.muted, fontSize: 12, marginTop: 3, fontVariantNumeric: "tabular-nums" }}>
+                    {e.sets.length} série{e.sets.length > 1 ? "s" : ""}
+                    {e.maxWeight ? ` · max ${e.maxWeight}kg` : ""}
+                  </div>
+
+                  {/* Barre proportionnelle au nombre de séries — rend le tri
+                      visible d'un coup d'œil (la liste est triée par volume
+                      d'entraînement), comparable entre tous les exercices
+                      même quand la métrique principale diffère. */}
+                  <div style={{ height: 3, borderRadius: 999, background: C.panelHi, marginTop: 8, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${(e.sets.length / maxSets) * 100}%`, background: m ? m.tint : C.muted, borderRadius: 999, opacity: 0.75 }} />
+                  </div>
+                </button>
+              );
+            });
+          })()}
         </div>
       )}
 
