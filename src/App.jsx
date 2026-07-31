@@ -357,6 +357,7 @@ export default function App() {
   const [tab, setTab] = useState("today"); // today | workout | progress | catalog
   const [catchupOpen, setCatchupOpen] = useState(false); // modal "Rattraper une séance"
   const [recapDate, setRecapDate] = useState(null); // date affichée dans le modal récap (depuis Historique)
+  const [histOpen, setHistOpen] = useState(true);   // carte Historique, repliable
   const [type, setType] = useState("poids");
   const [group, setGroup] = useState(DEFAULT_GROUPS[0]);
   const [exercise, setExercise] = useState(defaultItemsFor("poids", DEFAULT_GROUPS[0])[0]);
@@ -1120,8 +1121,12 @@ export default function App() {
 
         {/* Historique — visible uniquement sur Progrès ; ouvre le récap au clic */}
         {tab === "progress" && pastKeys.length > 0 && (
-          <div style={S.card}>
-            <div style={{ ...S.label, marginBottom: 14 }}>Historique</div>
+          <CollapsibleCard
+            title="Historique"
+            summary={`${pastKeys.length} jour${pastKeys.length > 1 ? "s" : ""}`}
+            open={histOpen}
+            onToggle={() => setHistOpen((v) => !v)}
+          >
             {pastKeys.map((k) => {
               const sets = history[k].sets;
               const repsTot = sets.filter((s) => s.mode !== "time").reduce((a, s) => a + s.reps, 0);
@@ -1144,7 +1149,7 @@ export default function App() {
                 </button>
               );
             })}
-          </div>
+          </CollapsibleCard>
         )}
 
         <div style={{ textAlign: "center", color: C.muted, fontSize: 12, marginTop: 8 }}>
@@ -1373,6 +1378,34 @@ function PeriodChips({ options, value, onChange }) {
           {p.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── Carte repliable : titre + chevron à gauche, résumé à droite (visible
+// même replié, pour savoir ce qu'on cache), contenu masqué quand fermé.
+function CollapsibleCard({ title, summary, summaryTint, open, onToggle, children }) {
+  return (
+    <div style={S.card}>
+      <button
+        onClick={onToggle}
+        style={{
+          display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center",
+          background: "none", border: "none", padding: 0, cursor: "pointer",
+          marginBottom: open ? 14 : 0, gap: 10,
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <span style={{ ...S.label, marginBottom: 0 }}>{title}</span>
+          <span style={{ color: C.muted, fontSize: 11 }}>{open ? "▲" : "▼"}</span>
+        </span>
+        {summary && (
+          <span style={{ color: summaryTint || C.muted, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+            {summary}
+          </span>
+        )}
+      </button>
+      {open && children}
     </div>
   );
 }
@@ -2098,6 +2131,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
   const [group, setGroup] = useState(catalog.groups[0] || "");
   const [exercise, setExercise] = useState(null); // null = vue globale (tous exercices)
   const [filterOpen, setFilterOpen] = useState(false); // replié par défaut pour gagner de la place
+  const [detailOpen, setDetailOpen] = useState(true);  // « Détail par exercice », repliable
   const [search, setSearch] = useState("");
 
   const groupItems = catItemsFor(catalog, type, group);
@@ -2453,8 +2487,12 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
       )}
 
       {!exercise && (
-        <div style={S.card}>
-          <div style={{ ...S.label, marginBottom: 10 }}>Détail par exercice</div>
+        <CollapsibleCard
+          title="Détail par exercice"
+          summary={`${perExercise.length} exercice${perExercise.length > 1 ? "s" : ""}`}
+          open={detailOpen}
+          onToggle={() => setDetailOpen((v) => !v)}
+        >
           <PeriodChips options={DETAIL_PERIODS} value={detailPeriod} onChange={setDetailPeriod} />
           {perExercise.length === 0 ? (
             <div style={{ color: C.muted, fontSize: 14 }}>
@@ -2479,7 +2517,7 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
               ));
             })()
           )}
-        </div>
+        </CollapsibleCard>
       )}
 
       {!exercise && (
