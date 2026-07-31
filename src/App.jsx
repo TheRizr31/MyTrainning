@@ -1319,6 +1319,64 @@ function DeltaPill({ value }) {
   );
 }
 
+// ── Ligne de statistique lisible : libellé seul à gauche, valeur clé seule
+// à droite (même ligne de base), détails secondaires en dessous, et une
+// barre de comparaison optionnelle. Partagée par « Détail par exercice »,
+// la liste des périodes et le zoom jour par jour — avant, chacune entassait
+// nom + 3 chiffres sur une seule ligne, ce qui partait à la ligne de façon
+// désordonnée dès qu'un libellé était un peu long.
+function StatRow({ label, primary, secondary, barPct, onClick, active, first }) {
+  const style = {
+    display: "block", width: "100%", border: "none", textAlign: "left",
+    background: active ? C.panelHi : "none",
+    borderTop: first ? "none" : `1px solid ${C.line}`,
+    padding: active ? "12px 10px" : "12px 0",
+    borderRadius: active ? 10 : 0,
+    cursor: onClick ? "pointer" : "default",
+  };
+  const inner = (
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+        <span style={{ color: C.chalk, fontSize: 14.5, fontWeight: 600, minWidth: 0 }}>{label}</span>
+        {primary && (
+          <span style={{ color: primary.tint, fontSize: 15, fontWeight: 800, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+            {primary.text}
+          </span>
+        )}
+      </div>
+      {secondary && (
+        <div style={{ color: C.muted, fontSize: 12, marginTop: 3, lineHeight: 1.45, fontVariantNumeric: "tabular-nums" }}>
+          {secondary}
+        </div>
+      )}
+      {barPct != null && (
+        <div style={{ height: 3, borderRadius: 999, background: C.panelHi, marginTop: 8, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${barPct}%`, background: primary ? primary.tint : C.muted, borderRadius: 999, opacity: 0.75 }} />
+        </div>
+      )}
+    </>
+  );
+  return onClick ? <button onClick={onClick} style={style}>{inner}</button> : <div style={style}>{inner}</div>;
+}
+
+// ── Sélecteur de période en pastilles, sur sa propre ligne pour ne pas
+// se retrouver comprimé à côté du titre de la carte.
+function PeriodChips({ options, value, onChange }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+      {options.map((p) => (
+        <button
+          key={p.key}
+          onClick={() => onChange(p.key)}
+          style={{ ...S.ghostSmall, ...(value === p.key ? { background: C.lime, color: C.ground, borderColor: C.lime, fontWeight: 800 } : {}) }}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Petit calendrier mensuel — jours entraînés marqués d'un badge ✓,
 // aujourd'hui cerclé, tap sur un jour entraîné pour ouvrir son récap.
 function MiniCalendar({ history, todayKey: tk, onSelectDay }) {
@@ -1932,6 +1990,16 @@ const PERIODS = [
   { key: "year", label: "Année" },
 ];
 
+// Périodes du « Détail par exercice » : cadre la liste sur la semaine, le
+// mois ou l'année EN COURS, ou sur tout l'historique. (Contrairement à
+// PERIODS qui découpe une série temporelle, ici c'est un instantané.)
+const DETAIL_PERIODS = [
+  { key: "week", label: "Semaine" },
+  { key: "month", label: "Mois" },
+  { key: "year", label: "Année" },
+  { key: "all", label: "Tout" },
+];
+
 function bucketKey(dateStr, period) {
   const d = new Date(dateStr + "T00:00:00");
   if (period === "year") return String(d.getFullYear());
@@ -2025,6 +2093,7 @@ const METRIC_INFO = {
 
 function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBodyweight, deleteBodyweight, stepper, catalog, todayKey: tk, onOpenCatchup, onOpenRecap }) {
   const [period, setPeriod] = useState("week");
+  const [detailPeriod, setDetailPeriod] = useState("all"); // cadrage du « Détail par exercice »
   const [type, setType] = useState(defaultTypeKey(catalog));
   const [group, setGroup] = useState(catalog.groups[0] || "");
   const [exercise, setExercise] = useState(null); // null = vue globale (tous exercices)
@@ -2106,10 +2175,13 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
 
   // ── Détail par exercice (vue globale uniquement) : liste triée par
   // volume d'entraînement, chaque ligne ouvre le drill-down (filtre exercice).
+  // Cadrée sur la semaine/mois/année en cours, ou sur tout l'historique.
   const perExercise = [];
   if (!exercise) {
+    const curKey = detailPeriod === "all" ? null : bucketKey(tk, detailPeriod);
+    const detailSets = curKey ? allSets.filter((s) => bucketKey(s.date, detailPeriod) === curKey) : allSets;
     const byExo = {};
-    allSets.forEach((s) => { (byExo[s.exercise] = byExo[s.exercise] || []).push(s); });
+    detailSets.forEach((s) => { (byExo[s.exercise] = byExo[s.exercise] || []).push(s); });
     const catByName = {};
     catAllExos(catalog).forEach((x) => { catByName[x.name] = x; });
     Object.entries(byExo).forEach(([name, sets]) => {
@@ -2121,6 +2193,20 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
     if (cat) { setType(cat.type); setGroup(cat.group); }
     setExercise(name);
   };
+
+  // Traduit une période/journée résumée en {valeur clé, détails} pour StatRow.
+  // En vue filtrée : la métrique de l'exercice (volume/reps/temps) en valeur
+  // clé, séries + charge max en détail. En vue globale : le nombre de séries
+  // en valeur clé, les exercices les plus travaillés en détail.
+  const rowParts = (r) => (exercise
+    ? {
+        primary: compactMetric(r),
+        secondary: `${r.sets.length} série${r.sets.length > 1 ? "s" : ""}${r.maxWeight ? ` · max ${r.maxWeight}kg` : ""}`,
+      }
+    : {
+        primary: { text: `${r.metric} série${r.metric > 1 ? "s" : ""}`, tint: C.lime },
+        secondary: r.top.length ? r.top.map(([name, n]) => `${name} ×${n}`).join(" · ") : null,
+      });
 
   // ── Poids corporel — mesures indépendantes des séries ───────────
   const bwDates = Object.keys(bodyweight).sort();
@@ -2366,51 +2452,33 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
         </div>
       )}
 
-      {!exercise && perExercise.length > 0 && (
+      {!exercise && (
         <div style={S.card}>
-          <div style={{ ...S.label, marginBottom: 6 }}>Détail par exercice</div>
-          {(() => {
-            const maxSets = Math.max(1, ...perExercise.map((e) => e.sets.length));
-            return perExercise.map((e, i) => {
-              const m = compactMetric(e);
-              return (
-                <button
+          <div style={{ ...S.label, marginBottom: 10 }}>Détail par exercice</div>
+          <PeriodChips options={DETAIL_PERIODS} value={detailPeriod} onChange={setDetailPeriod} />
+          {perExercise.length === 0 ? (
+            <div style={{ color: C.muted, fontSize: 14 }}>
+              Aucune série sur cette période.
+            </div>
+          ) : (
+            (() => {
+              // Barre proportionnelle au nombre de séries — rend le tri visible
+              // d'un coup d'œil et reste comparable même quand la métrique
+              // principale diffère d'un exercice à l'autre.
+              const maxSets = Math.max(1, ...perExercise.map((e) => e.sets.length));
+              return perExercise.map((e, i) => (
+                <StatRow
                   key={e.name}
+                  first={i === 0}
+                  label={e.name}
+                  primary={compactMetric(e)}
+                  secondary={`${e.sets.length} série${e.sets.length > 1 ? "s" : ""}${e.maxWeight ? ` · max ${e.maxWeight}kg` : ""}`}
+                  barPct={(e.sets.length / maxSets) * 100}
                   onClick={() => drillInto(e.name, e.cat)}
-                  style={{
-                    display: "block", width: "100%", background: "none", border: "none",
-                    borderTop: i === 0 ? "none" : `1px solid ${C.line}`,
-                    padding: "12px 0", cursor: "pointer", textAlign: "left",
-                  }}
-                >
-                  {/* Nom à gauche, métrique principale à droite — chacun sa
-                      colonne, plus de mélange qui partait à la ligne. */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                    <span style={{ color: C.chalk, fontSize: 14.5, fontWeight: 600, minWidth: 0 }}>{e.name}</span>
-                    {m && (
-                      <span style={{ color: m.tint, fontSize: 15, fontWeight: 800, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                        {m.text}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Détails secondaires, discrets, sur leur propre ligne. */}
-                  <div style={{ color: C.muted, fontSize: 12, marginTop: 3, fontVariantNumeric: "tabular-nums" }}>
-                    {e.sets.length} série{e.sets.length > 1 ? "s" : ""}
-                    {e.maxWeight ? ` · max ${e.maxWeight}kg` : ""}
-                  </div>
-
-                  {/* Barre proportionnelle au nombre de séries — rend le tri
-                      visible d'un coup d'œil (la liste est triée par volume
-                      d'entraînement), comparable entre tous les exercices
-                      même quand la métrique principale diffère. */}
-                  <div style={{ height: 3, borderRadius: 999, background: C.panelHi, marginTop: 8, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${(e.sets.length / maxSets) * 100}%`, background: m ? m.tint : C.muted, borderRadius: 999, opacity: 0.75 }} />
-                  </div>
-                </button>
-              );
-            });
-          })()}
+                />
+              ));
+            })()
+          )}
         </div>
       )}
 
@@ -2467,20 +2535,8 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
       )}
 
       <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-          <div style={S.label}>{exercise || "Tous les exercices"}</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {PERIODS.map((p) => (
-              <button
-                key={p.key}
-                onClick={() => setPeriod(p.key)}
-                style={{ ...S.ghostSmall, ...(period === p.key ? { background: C.lime, color: C.ground, borderColor: C.lime, fontWeight: 800 } : {}) }}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <div style={{ ...S.label, marginBottom: 10 }}>{exercise || "Tous les exercices"}</div>
+        <PeriodChips options={PERIODS} value={period} onChange={setPeriod} />
 
         {rows.length === 0 ? (
           <div style={{ color: C.muted, fontSize: 14, padding: "8px 0" }}>
@@ -2527,22 +2583,12 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
                   <div style={{ color: C.muted, fontSize: 13 }}>Rien ce jour-là.</div>
                 ) : (
                   zoomDayRows.map((r, i) => (
-                    <div key={i} style={{ ...S.histRow, borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
-                      <div style={{ textTransform: "capitalize", color: C.chalk, fontSize: 13 }}>{fmtDate(r.date)}</div>
-                      <div style={{ color: C.muted, fontSize: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                        {exercise ? (
-                          <>
-                            {r.sets.length} série{r.sets.length > 1 ? "s" : ""} · <span style={{ color: C.chalk, fontWeight: 700 }}>{r.label} {Math.round(r.metric)}{r.unit}</span>
-                            {r.maxWeight ? ` · max ${r.maxWeight}kg` : ""}
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ color: C.chalk, fontWeight: 700 }}>{r.metric} série{r.metric > 1 ? "s" : ""}</span>
-                            {r.top.length ? " · " + r.top.map(([name, n]) => `${name} ×${n}`).join(", ") : ""}
-                          </>
-                        )}
-                      </div>
-                    </div>
+                    <StatRow
+                      key={i}
+                      first={i === 0}
+                      label={<span style={{ textTransform: "capitalize" }}>{fmtDate(r.date)}</span>}
+                      {...rowParts(r)}
+                    />
                   ))
                 )}
               </div>
@@ -2550,28 +2596,15 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
 
             <div style={{ marginTop: 18 }}>
               {rows.slice().reverse().map((r, i) => (
-                <button
+                <StatRow
                   key={i}
+                  first={i === 0}
+                  active={zoomKey === r.key}
+                  label={bucketLabel(r.key, period)}
+                  {...rowParts(r)}
+                  barPct={(r.metric / maxMetric) * 100}
                   onClick={() => toggleZoom(r.key)}
-                  style={{ ...S.histRow, width: "100%", background: "none", border: "none", borderTop: `1px solid ${C.line}`, cursor: "pointer", textAlign: "left", ...(zoomKey === r.key ? { background: C.panelHi } : {}) }}
-                >
-                  <div style={{ color: C.chalk, fontSize: 14 }}>
-                    {bucketLabel(r.key, period)}
-                  </div>
-                  <div style={{ color: C.muted, fontSize: 13, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                    {exercise ? (
-                      <>
-                        {r.sets.length} série{r.sets.length > 1 ? "s" : ""} · <span style={{ color: C.chalk, fontWeight: 700 }}>{r.label} {Math.round(r.metric)}{r.unit}</span>
-                        {r.maxWeight ? ` · max ${r.maxWeight}kg` : ""}
-                      </>
-                    ) : (
-                      <>
-                        <span style={{ color: C.chalk, fontWeight: 700 }}>{r.metric} série{r.metric > 1 ? "s" : ""}</span>
-                        {r.top.length ? " · " + r.top.map(([name, n]) => `${name} ×${n}`).join(", ") : ""}
-                      </>
-                    )}
-                  </div>
-                </button>
+                />
               ))}
             </div>
           </>

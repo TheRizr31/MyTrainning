@@ -55,8 +55,14 @@ Fonctionnalités déjà implémentées (toutes dans `src/App.jsx`) :
   exercice favori) + objectifs personnels avec suivi de progression (voir
   §3, clé `goal:<id>`). En vue globale : carte **Résumé** (semaine/mois
   courants vs précédents, avec delta) et carte **Détail par exercice**
-  (liste triée par volume d'entraînement, chaque ligne fait drill-down
-  vers la vue filtrée de cet exercice).
+  (liste triée par volume d'entraînement, cadrable sur la semaine / le mois
+  / l'année en cours ou tout l'historique via `DETAIL_PERIODS`, chaque ligne
+  fait drill-down vers la vue filtrée de cet exercice).
+  Toutes les listes de stats passent par le composant partagé `StatRow`
+  (libellé seul à gauche, valeur clé seule à droite, détails secondaires en
+  dessous, barre de comparaison optionnelle) — ne pas revenir à un libellé
+  et plusieurs chiffres entassés sur la même ligne, c'était illisible dès
+  qu'un nom d'exercice ou de période était un peu long.
 - **Onglet Catalogue** : le catalogue d'exercices (types, groupes musculaires,
   exercices) est entièrement éditable — créer/renommer/supprimer un type, un
   groupe ou un exercice, et marquer un type comme impliquant une charge
