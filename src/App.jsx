@@ -1682,6 +1682,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
   const [name, setName] = useState("");
   const [blocks, setBlocks] = useState([]);
   const [editId, setEditId] = useState(null);
+  const [listOpen, setListOpen] = useState(true); // carte « Mes entraînements », repliable
 
   // Exercise picker (adds to the current block draft).
   const [bType, setBType] = useState(defaultTypeKey(catalog));
@@ -1823,8 +1824,12 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
     <>
       {/* Saved workouts */}
       {list.length > 0 && (
-        <div style={S.card}>
-          <div style={{ ...S.label, marginBottom: 14 }}>Mes entraînements</div>
+        <CollapsibleCard
+          title="Mes entraînements"
+          summary={`${list.length} séance${list.length > 1 ? "s" : ""}`}
+          open={listOpen}
+          onToggle={() => setListOpen((v) => !v)}
+        >
           {list.map((wk) => (
             <div key={wk.id} style={{ ...S.row, alignItems: "flex-start" }}>
               <div style={{ flex: 1 }}>
@@ -1843,7 +1848,7 @@ function WorkoutTab({ workouts, saveWorkout, deleteWorkout, launchWorkout, stepp
               </div>
             </div>
           ))}
-        </div>
+        </CollapsibleCard>
       )}
 
       {/* Builder */}
