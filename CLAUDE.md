@@ -18,6 +18,9 @@ Fonctionnalités déjà implémentées (toutes dans `src/App.jsx`) :
   en 4 étapes (Type → Groupe musculaire → Exercice → Mesure). Mesure = reps
   **ou** temps. Chrono de repos entre séries avec alarme sonore en boucle
   (bouton Stop). En mode temps, un compte à rebours d'effort qui sonne à la fin.
+  Une petite phrase amicale (`pickGreeting()`) s'affiche en haut, seedée par
+  la date (stable toute la journée) et différente selon qu'une série a déjà
+  été loguée aujourd'hui ou non.
 - **Rattraper une séance** (modal, ouvert depuis un bouton dans Progrès —
   usage exceptionnel, plus un onglet à part) : ajouter en bloc plusieurs
   séries à une date passée (exercice, reps/temps, nombre de séries), et
@@ -38,8 +41,12 @@ Fonctionnalités déjà implémentées (toutes dans `src/App.jsx`) :
   enregistre chaque série dans l'historique du jour. Boutons « Passer la
   série » et « Bloc suivant ».
 - **Historique** : récap par jour, distinguant total reps et total temps.
-- **Onglet Progrès** : pour un exercice choisi (même sélecteur type → groupe
-  → exercice), graphique en barres + tableau brut par séance, plus un
+- **Onglet Progrès** : mini calendrier mensuel (composant `MiniCalendar`) en
+  haut — jours entraînés marqués d'un badge ✓ vert, aujourd'hui cerclé,
+  navigation mois précédent/suivant, tap sur un jour entraîné ouvre son
+  récap (réutilise le modal `DayRecap`). Pour un exercice choisi (même
+  sélecteur type → groupe → exercice), graphique en barres + tableau brut
+  par séance, plus un
   sparkline de tendance (composant `Sparkline`, SVG pur, pas de lib) et,
   pour un exercice à charge, un second sparkline de progression de la
   charge max. Métrique affichée : volume (reps × poids) si des séries

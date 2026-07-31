@@ -228,6 +228,30 @@ function stopAlarm() {
   if (alarmTimer) { clearInterval(alarmTimer); alarmTimer = null; }
 }
 
+// ── Petite phrase amicale du jour — un ton différent selon qu'on a déjà
+// loggué une série aujourd'hui ou non, stable toute la journée (seedée
+// par la date) puis change le lendemain.
+const GREETINGS_TODO = [
+  "On attaque quoi aujourd'hui ?",
+  "Prêt·e à bouger un peu ?",
+  "C'est l'heure de suer un peu.",
+  "Qu'est-ce qu'on tape aujourd'hui ?",
+  "Go, la séance t'attend.",
+  "Une petite série pour commencer ?",
+];
+const GREETINGS_DONE = [
+  "Belle séance aujourd'hui, continue comme ça 💪",
+  "Tu gères, encore une série ?",
+  "Déjà sur les rails aujourd'hui 👊",
+  "On enchaîne une autre série ?",
+];
+function pickGreeting(dateKey, trained) {
+  const pool = trained ? GREETINGS_DONE : GREETINGS_TODO;
+  let hash = 0;
+  for (let i = 0; i < dateKey.length; i++) hash = (hash * 31 + dateKey.charCodeAt(i)) | 0;
+  return pool[Math.abs(hash) % pool.length];
+}
+
 // ── Barre d'onglets du bas — icônes SVG dessinées à la main (pas
 // d'emoji, pas de lib d'icônes) pour rester dans l'esprit "chalk & iron".
 const TABS = [
@@ -832,6 +856,10 @@ export default function App() {
 
         {tab === "today" && !run && (
           <>
+            <div style={{ color: C.chalk, fontSize: 15, fontWeight: 700, margin: "-6px 0 16px" }}>
+              {pickGreeting(tk, today.sets.length > 0)}
+            </div>
+
             {/* Timer — rest between sets, or effort countdown for timed sets */}
             <div style={{ ...S.card, ...(rest > 0 || ringing ? S.cardLive : {}), ...(ringing ? S.cardRing : {}), ...(phase === "effort" && rest > 0 ? S.cardEffort : {}), textAlign: "center", padding: "26px 20px" }}>
               <div style={{ ...S.label, color: ringing ? C.ring : rest > 0 ? (phase === "effort" ? C.effort : C.lime) : C.muted }}>
@@ -975,6 +1003,7 @@ export default function App() {
             catalog={catalog}
             todayKey={tk}
             onOpenCatchup={() => setCatchupOpen(true)}
+            onOpenRecap={(date) => setRecapDate(date)}
           />
         )}
 
@@ -1287,6 +1316,75 @@ function DeltaPill({ value }) {
     >
       {value}
     </span>
+  );
+}
+
+// ── Petit calendrier mensuel — jours entraînés marqués d'un badge ✓,
+// aujourd'hui cerclé, tap sur un jour entraîné pour ouvrir son récap.
+function MiniCalendar({ history, todayKey: tk, onSelectDay }) {
+  const [monthOffset, setMonthOffset] = useState(0); // 0 = mois courant
+  const base = new Date();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + monthOffset);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const monthLabel = base.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+
+  const firstDow = (new Date(year, month, 1).getDay() + 6) % 7; // 0 = lundi
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const dayKey = (d) => `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <button onClick={() => setMonthOffset((m) => m - 1)} style={S.ghostSmall}>‹</button>
+        <div style={{ fontSize: 13, fontWeight: 800, color: C.chalk, textTransform: "capitalize" }}>{monthLabel}</div>
+        <button
+          onClick={() => setMonthOffset((m) => Math.min(0, m + 1))}
+          disabled={monthOffset >= 0}
+          style={{ ...S.ghostSmall, ...(monthOffset >= 0 ? { opacity: 0.3, cursor: "not-allowed" } : {}) }}
+        >
+          ›
+        </button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 6 }}>
+        {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => (
+          <div key={i} style={{ textAlign: "center", fontSize: 10, color: C.muted, fontWeight: 700 }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+        {cells.map((d, i) => {
+          if (d == null) return <div key={i} />;
+          const key = dayKey(d);
+          const trained = history[key]?.sets?.length > 0;
+          const isToday = key === tk;
+          const isFuture = key > tk;
+          return (
+            <button
+              key={i}
+              disabled={!trained}
+              onClick={() => onSelectDay(key)}
+              style={{
+                aspectRatio: "1", borderRadius: 10, padding: 0,
+                border: isToday ? `1.5px solid ${C.lime}` : "1px solid transparent",
+                background: trained ? `${C.done}22` : "transparent",
+                color: isFuture ? C.line : trained ? C.chalk : C.muted,
+                fontSize: 12.5, fontWeight: trained ? 800 : 500,
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                cursor: trained ? "pointer" : "default", fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {d}
+              <span style={{ fontSize: 9, color: C.done, lineHeight: 1, marginTop: 1, visibility: trained ? "visible" : "hidden" }}>✓</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1914,7 +2012,7 @@ const METRIC_INFO = {
   bodyweight: { label: "Poids du corps", unit: "kg", step: 0.5 },
 };
 
-function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBodyweight, deleteBodyweight, stepper, catalog, todayKey: tk, onOpenCatchup }) {
+function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBodyweight, deleteBodyweight, stepper, catalog, todayKey: tk, onOpenCatchup, onOpenRecap }) {
   const [period, setPeriod] = useState("week");
   const [type, setType] = useState(defaultTypeKey(catalog));
   const [group, setGroup] = useState(catalog.groups[0] || "");
@@ -2083,6 +2181,11 @@ function ProgressTab({ history, goals, saveGoal, deleteGoal, bodyweight, saveBod
         </div>
         <span style={{ color: C.muted, fontSize: 20 }}>›</span>
       </button>
+
+      <div style={S.card}>
+        <div style={{ ...S.label, marginBottom: 14 }}>Calendrier</div>
+        <MiniCalendar history={history} todayKey={tk} onSelectDay={(k) => history[k]?.sets?.length > 0 && onOpenRecap(k)} />
+      </div>
 
       <div style={S.card}>
         <button
